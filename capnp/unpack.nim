@@ -62,13 +62,16 @@ proc newUnpacker*(buffer: string): Unpacker =
   result.currentSegment = 0
 
 proc unpackScalar*[T: SomeInt](self: Unpacker, offset: int, typ: typedesc[T], defaultValue: T=0): T =
-  return unpack(self.buffer, offset, typ)
+  return unpack(self.buffer, offset, typ) xor defaultValue
 
 proc unpackScalar*(self: Unpacker, offset: int, typ: typedesc[float32], defaultValue: float32=0): float32 =
   return cast[float32](unpackScalar(self, offset, uint32, cast[uint32](defaultValue)))
 
 proc unpackScalar*(self: Unpacker, offset: int, typ: typedesc[float64], defaultValue: float64=0): float64 =
   return cast[float64](unpackScalar(self, offset, uint64, cast[uint64](defaultValue)))
+
+proc unpackScalar*[T: enum](self: Unpacker, offset: int, typ: typedesc[T], defaultValue: T=T.low): T =
+  return self.unpackScalar(offset, uint16, defaultValue.uint16).T
 
 proc unpackOffsetSigned(num: int): int =
   # TODO: check with C++ code if this is correct
@@ -175,6 +178,8 @@ proc unpackListImpl[T, Target](self: Unpacker, offset: int, typ: typedesc[T], ta
   let typeTag = extractBits(pointer, 0, bits=2)
   if typeTag == 2:
     return unpackInterSegment(self, pointer, Target)
+  if pointer == 0:
+    return nil
   if typeTag != 1:
     raise newException(CapnpFormatError, "expected list, found " & $typeTag)
   let bodyOffset = extractBits(pointer, 2, bits=30).unpackOffsetSigned * 8 + offset + 8
@@ -201,6 +206,9 @@ proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: 
   let pointer = unpack(self.buffer, offset, uint64)
   let typ = extractBits(pointer, 0, bits=2)
 
+  if pointer == 0:
+    return (0, 0, 0)
+
   if typ != 0:
     raise newException(CapnpFormatError, "expected struct, found " & $typ)
 
@@ -218,7 +226,8 @@ proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: 
   if parseOffset:
     result.offset *= 8
     result.offset += offset + 8
-    if result.offset < 0 or result.offset >= self.buffer.len or result.offset + result.dataLength >= self.buffer.len or result.offset + result.dataLength + result.pointerCount * 8 >= self.buffer.len:
+
+    if result.offset < 0 or result.offset >= self.buffer.len or result.offset + result.dataLength > self.buffer.len or result.offset + result.dataLength + result.pointerCount * 8 > self.buffer.len:
       raise newException(CapnpFormatError, "index error")
 
 proc unpackStruct*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
@@ -227,6 +236,8 @@ proc unpackStruct*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   deferRestoreStackLimit
   self.decreaseLimit(s.pointerCount * 8 + s.pointerCount)
   return capnpUnpackStructImpl(self, s.offset, s.dataLength, s.pointerCount, typ)
+
+import typetraits
 
 proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   when typ is seq or typ is string:

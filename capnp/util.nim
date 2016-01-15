@@ -29,7 +29,7 @@ proc convertEndian*(size: static[int], dst: pointer, src: pointer, endian=little
         {.error: "Unsupported size".}
 
 proc unpack*[T](v: string, offset: int, t: typedesc[T], endian=littleEndian): T {.inline.} =
-  if not (offset < v.len and offset + sizeof(t) < v.len and offset >= 0):
+  if not (offset < v.len and offset + sizeof(t) <= v.len and offset >= 0):
     raise newException(CapnpFormatError, "bad offset")
   convertEndian(sizeof(T), addr result, unsafeAddr v[offset])
 

@@ -3,20 +3,31 @@ import macros
 type PointerFlag* {.pure.} = enum
   none, text
 
-template capnpUnpackScalarMember*(name, fieldOffset, fieldDefault) =
-  if offset + fieldOffset + sizeof(result.name) > self.buffer.len:
-    result.name = fieldDefault
-  else:
-    result.name = self.unpackScalar(offset + fieldOffset, type(result.name), fieldDefault)
+template capnpUnpackScalarMember*(name, fieldOffset, fieldDefault, condition) =
+  if condition:
+    if offset + fieldOffset + sizeof(name) > self.buffer.len:
+      name = fieldDefault
+    else:
+      name = self.unpackScalar(offset + fieldOffset, type(name), fieldDefault)
 
-template capnpUnpackPointerMember*(name, pointerIndex, flag) =
-  if pointerIndex < pointerCount:
-    let realOffset = offset + pointerIndex * 8 + dataLength
-    if realOffset + 8 <= self.buffer.len:
-      when flag == PointerFlag.text:
-        result.name = self.unpackText(realOffset, type(result.name))
-      else:
-        result.name = self.unpackPointer(realOffset, type(result.name))
+template capnpUnpackPointerMember*(name, pointerIndex, flag, condition) =
+  if condition:
+    name = nil
+    if pointerIndex < pointerCount:
+      let realOffset = offset + pointerIndex * 8 + dataLength
+      if realOffset + 8 <= self.buffer.len:
+        when flag == PointerFlag.text:
+          name = self.unpackText(realOffset, type(name))
+        else:
+          name = self.unpackPointer(realOffset, type(name))
+
+proc newComplexDotExpr(a: NimNode, b: NimNode): NimNode {.compileTime.} =
+  var b = b
+  var a = a
+  while b.kind == nnkDotExpr:
+    a = newDotExpr(a, b[0])
+    b = b[1]
+  return newDotExpr(a, b)
 
 macro makeStructCoders*(typeName, scalars, pointers, bitfields): stmt =
   # capnpUnpackStructImpl is generic to delay instantiation
@@ -26,17 +37,20 @@ macro makeStructCoders*(typeName, scalars, pointers, bitfields): stmt =
   result[0][2][0][1] = typeName # replace XXX
   #result.treeRepr.echo
   var body = result[0][^1]
+  let resultId = newIdentNode($"result")
 
   for p in scalars:
-    let name = p[0].ident
+    let name = p[0]
     let offset = p[1]
     let default = p[2]
-    body.add(newCall(!"capnpUnpackScalarMember", newIdentNode(name), offset, default))
+    let condition = p[3]
+    body.add(newCall(!"capnpUnpackScalarMember", newComplexDotExpr(resultId, name), offset, default, condition))
 
   for p in pointers:
-    let name = p[0].ident
+    let name = p[0]
     let offset = p[1]
     let flag = p[2]
-    body.add(newCall(!"capnpUnpackPointerMember", newIdentNode(name), offset, flag))
+    let condition = p[3]
+    body.add(newCall(!"capnpUnpackPointerMember", newComplexDotExpr(resultId, name), offset, flag, condition))
 
   result.repr.echo
