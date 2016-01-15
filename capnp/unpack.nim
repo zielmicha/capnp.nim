@@ -231,6 +231,10 @@ proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: 
       raise newException(CapnpFormatError, "index error")
 
 proc unpackStruct*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
+  let pointer = unpack(self.buffer, offset, uint64)
+  if extractBits(pointer, 0, bits=2) == 2:
+    return unpackInterSegment(self, pointer, T)
+  
   mixin capnpUnpackStructImpl
   let s = parseStruct(self, offset)
   deferRestoreStackLimit
@@ -248,6 +252,7 @@ proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
 proc unpackText*(self: Unpacker, offset: int, typ: typedesc[string]): string =
   # strip trailing zero
   let l = unpackList(self, offset, string)
+  if l == nil: return nil
   if l.len == 0 or l[^1] != '\0':
     raise newException(CapnpFormatError, "text without trailing zero")
   return l[0..(l.len-2)]

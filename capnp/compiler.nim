@@ -40,6 +40,11 @@ proc quoteId(s: string): string =
   if s in keywords: return "`$1`" % s
   return s
 
+proc quoteFieldId(s: string): string =
+  const primitiveTypes = "void bool int8 int16 int32 int64 uint8 uint16 uint32 uint64 float32 float64".split(" ")
+  #if s in primitiveTypes: return s & "_field"
+  return s.quoteId
+
 proc type2nim(self: Generator, t: Type): string =
   case t.kind:
     of TypeKind.void: return "void"
@@ -82,6 +87,14 @@ proc typesize(t: Type): int =
     of TypeKind.`enum`: return 2
     else: doAssert(false)
 
+proc makeDefaultValue(self: Generator, typ: Type, val: Value): string =
+  case typ.kind:
+  of TypeKind.uint16: return $(val.uint16)
+  of TypeKind.`enum`:
+    return "$1($2)" % [self.typeNames[typ.enum_typeId], $val.`enum`]
+  else:
+    return $0 # TODO
+
 proc generateStruct(self: Generator, name: string, node: Node) =
   let unionFields = node.fields.filter(f => f.discriminantValue != 0xFFFF).toSeq
   let hasUnion = unionFields.len != 0
@@ -93,7 +106,7 @@ proc generateStruct(self: Generator, name: string, node: Node) =
     self.addToplevel(s)
 
   proc fieldDecl(f: Field, namePrefix=""): string =
-    result = quoteId(namePrefix & f.name) & "*: "
+    result = quoteFieldId(namePrefix & f.name) & "*: "
     if f.kind == FieldKind.slot:
       result &= self.type2nim(f.`type`)
     else:
@@ -146,12 +159,13 @@ proc generateStruct(self: Generator, name: string, node: Node) =
     let fieldName = prefix & f.name
     if f.kind == FieldKind.slot:
       if f.`type`.kind in {TypeKind.text, TypeKind.data, TypeKind.list, TypeKind.struct}:
-        let flags = if f.`type`.kind == TypeKind.text: "PointerFlags.text" else: "PointerFlags.none"
-        let s = "($1, $2, $3, $4)" % [quoteId(fieldName), $f.offset, flags, condition]
+        let flags = if f.`type`.kind == TypeKind.text: "PointerFlag.text" else: "PointerFlag.none"
+        let s = "($1, $2, $3, $4)" % [quoteFieldId(fieldName), $f.offset, flags, condition]
         pointerCoderArgs.add s
       else:
         # TODO: default
-        let s = "($1, $2, $3, $4)" % [quoteId(fieldName), $(f.offset.int * f.`type`.typesize), $0, condition]
+        let defaultVal = self.makeDefaultValue(f.`type`, f.defaultValue)
+        let s = "($1, $2, $3, $4)" % [quoteFieldId(fieldName), $(f.offset.int * f.`type`.typesize), defaultVal, condition]
         scalarCoderArgs.add s
     else:
       addCoderFields(self.nodes[f.typeId], fieldName & ".", condition)
@@ -167,7 +181,7 @@ proc generateStruct(self: Generator, name: string, node: Node) =
     scalarCoderArgs.add("(kind, $1, low($2Kind), true)" % [$(node.discriminantOffset * 2), name])
     for c in unionCoders:
       for f in c.fields:
-        addCoderField(f.field, f.namePrefix, "result.kind == $1Kind.$2" % [name, quoteId(c.name)])
+        addCoderField(f.field, f.namePrefix, "result.kind == $1Kind.$2" % [name, quoteFieldId(c.name)])
 
   proc joinList(v: seq[string]): string =
     if v.len == 0: return ""

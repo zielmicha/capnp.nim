@@ -69,6 +69,33 @@ type
       interface_typeId*: uint64
     of TypeKind.anyPointer: discard
 
+  ValueKind* {.pure.} =  enum
+    void, bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32, float64, text, data, list, `enum`, struct, `interface`, anyPointer
+
+  Value* = ref object
+    case kind*: ValueKind:
+    of ValueKind.void: discard
+    of ValueKind.bool: discard
+    of ValueKind.int8: discard
+    of ValueKind.int16: discard
+    of ValueKind.int32: discard
+    of ValueKind.int64: discard
+    of ValueKind.uint8: discard
+    of ValueKind.uint16:
+      uint16*: uint16
+    of ValueKind.uint32: discard
+    of ValueKind.uint64: discard
+    of ValueKind.float32: discard
+    of ValueKind.float64: discard
+    of ValueKind.text: discard
+    of ValueKind.data: discard
+    of ValueKind.list: discard
+    of ValueKind.`enum`:
+      `enum`*: uint16
+    of ValueKind.struct: discard
+    of ValueKind.`interface`: discard
+    of ValueKind.anyPointer: discard
+
   Field* = ref object
     name*: string
     codeOrder*: uint16
@@ -77,7 +104,7 @@ type
     of FieldKind.slot:
       offset*: uint32
       `type`*: Type
-      #defaultValue*: Value
+      defaultValue*: Value
     of FieldKind.group:
       typeId*: uint64
 
@@ -107,6 +134,14 @@ makeStructCoders(Enumerant,
                  []
 )
 
+makeStructCoders(Value,
+                 [(kind, 0, low(ValueKind), true),
+                  (uint16, 2, 0, result.kind == ValueKind.uint16),
+                  (`enum`, 2, 0, result.kind == ValueKind.`enum`)],
+                 [],
+                 []
+)
+
 makeStructCoders(Field,
                  [(codeOrder, 0, 0, true),
                   (discriminantValue, 2, 65535, true),
@@ -115,7 +150,8 @@ makeStructCoders(Field,
                   (ordinal.kind, 10, high(FieldOrdinalKind), true),
                   (typeId, 16, 0, result.kind == FieldKind.group)],
                  [(name, 0, PointerFlag.text, true),
-                  (`type`, 2, PointerFlag.none, result.kind == FieldKind.slot)
+                  (`type`, 2, PointerFlag.none, result.kind == FieldKind.slot),
+                  (defaultValue, 3, PointerFlag.none, result.kind == FieldKind.slot)
                  ],
                  [])
 
