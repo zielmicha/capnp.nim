@@ -181,7 +181,7 @@ proc generateStruct(self: Generator, name: string, node: Node) =
     scalarCoderArgs.add("(kind, $1, low($2Kind), true)" % [$(node.discriminantOffset * 2), name])
     for c in unionCoders:
       for f in c.fields:
-        addCoderField(f.field, f.namePrefix, "result.kind == $1Kind.$2" % [name, quoteFieldId(c.name)])
+        addCoderField(f.field, f.namePrefix, "$1Kind.$2" % [name, quoteFieldId(c.name)])
 
   proc joinList(v: seq[string]): string =
     if v.len == 0: return ""
@@ -227,7 +227,7 @@ proc generateCode(req: CodeGeneratorRequest) =
   for id in sorted(self.typeNames.keys):
     self.generateType(id)
 
-  echo "import capnp/unpack, capnp/gensupport\ntype\n" & self.toplevel
+  echo "import capnp/util, capnp/unpack, capnp/pack, capnp/gensupport\ntype\n" & self.toplevel
   echo()
   echo self.bottom
 

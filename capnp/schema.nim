@@ -1,4 +1,4 @@
-import capnp/unpack, capnp/gensupport
+import capnp/util, capnp/unpack, capnp/pack, capnp/gensupport
 type
   Method* = ref object
     name*: string
@@ -204,13 +204,13 @@ makeStructCoders(Field, [
   (codeOrder, 0, 0, true),
   (discriminantValue, 2, 65535, true),
   (kind, 8, low(FieldKind), true),
-  (offset, 4, 0, result.kind == FieldKind.slot),
-  (typeId, 16, 0, result.kind == FieldKind.group)
+  (offset, 4, 0, FieldKind.slot),
+  (typeId, 16, 0, FieldKind.group)
   ], [
   (name, 0, PointerFlag.text, true),
   (annotations, 1, PointerFlag.none, true),
-  (`type`, 2, PointerFlag.none, result.kind == FieldKind.slot),
-  (defaultValue, 3, PointerFlag.none, result.kind == FieldKind.slot)
+  (`type`, 2, PointerFlag.none, FieldKind.slot),
+  (defaultValue, 3, PointerFlag.none, FieldKind.slot)
   ], [])
 
 makeStructCoders(CodeGeneratorRequest_RequestedFile_Import, [
@@ -221,7 +221,7 @@ makeStructCoders(CodeGeneratorRequest_RequestedFile_Import, [
 
 makeStructCoders(Field_ordinal, [
   (kind, 10, low(Field_ordinalKind), true),
-  (explicit, 12, 0, result.kind == Field_ordinalKind.explicit)
+  (explicit, 12, 0, Field_ordinalKind.explicit)
   ], [], [])
 
 makeStructCoders(CodeGeneratorRequest, [], [
@@ -231,20 +231,20 @@ makeStructCoders(CodeGeneratorRequest, [], [
 
 makeStructCoders(Value, [
   (kind, 0, low(ValueKind), true),
-  (int8, 2, 0, result.kind == ValueKind.int8),
-  (int16, 2, 0, result.kind == ValueKind.int16),
-  (int32, 4, 0, result.kind == ValueKind.int32),
-  (int64, 8, 0, result.kind == ValueKind.int64),
-  (uint8, 2, 0, result.kind == ValueKind.uint8),
-  (uint16, 2, 0, result.kind == ValueKind.uint16),
-  (uint32, 4, 0, result.kind == ValueKind.uint32),
-  (uint64, 8, 0, result.kind == ValueKind.uint64),
-  (float32, 4, 0, result.kind == ValueKind.float32),
-  (float64, 8, 0, result.kind == ValueKind.float64),
-  (`enum`, 2, 0, result.kind == ValueKind.`enum`)
+  (int8, 2, 0, ValueKind.int8),
+  (int16, 2, 0, ValueKind.int16),
+  (int32, 4, 0, ValueKind.int32),
+  (int64, 8, 0, ValueKind.int64),
+  (uint8, 2, 0, ValueKind.uint8),
+  (uint16, 2, 0, ValueKind.uint16),
+  (uint32, 4, 0, ValueKind.uint32),
+  (uint64, 8, 0, ValueKind.uint64),
+  (float32, 4, 0, ValueKind.float32),
+  (float64, 8, 0, ValueKind.float64),
+  (`enum`, 2, 0, ValueKind.`enum`)
   ], [
-  (text, 0, PointerFlag.text, result.kind == ValueKind.text),
-  (data, 0, PointerFlag.none, result.kind == ValueKind.data)
+  (text, 0, PointerFlag.text, ValueKind.text),
+  (data, 0, PointerFlag.none, ValueKind.data)
   ], [])
 
 makeStructCoders(CodeGeneratorRequest_RequestedFile, [
@@ -256,11 +256,11 @@ makeStructCoders(CodeGeneratorRequest_RequestedFile, [
 
 makeStructCoders(Type, [
   (kind, 0, low(TypeKind), true),
-  (enum_typeId, 8, 0, result.kind == TypeKind.`enum`),
-  (struct_typeId, 8, 0, result.kind == TypeKind.struct),
-  (interface_typeId, 8, 0, result.kind == TypeKind.`interface`)
+  (enum_typeId, 8, 0, TypeKind.`enum`),
+  (struct_typeId, 8, 0, TypeKind.struct),
+  (interface_typeId, 8, 0, TypeKind.`interface`)
   ], [
-  (elementType, 0, PointerFlag.none, result.kind == TypeKind.list)
+  (elementType, 0, PointerFlag.none, TypeKind.list)
   ], [])
 
 makeStructCoders(Node_NestedNode, [
@@ -274,22 +274,22 @@ makeStructCoders(Node, [
   (displayNamePrefixLength, 8, 0, true),
   (scopeId, 16, 0, true),
   (kind, 12, low(NodeKind), true),
-  (dataWordCount, 14, 0, result.kind == NodeKind.struct),
-  (pointerCount, 24, 0, result.kind == NodeKind.struct),
-  (preferredListEncoding, 26, ElementSize(0), result.kind == NodeKind.struct),
-  (discriminantCount, 30, 0, result.kind == NodeKind.struct),
-  (discriminantOffset, 32, 0, result.kind == NodeKind.struct)
+  (dataWordCount, 14, 0, NodeKind.struct),
+  (pointerCount, 24, 0, NodeKind.struct),
+  (preferredListEncoding, 26, ElementSize(0), NodeKind.struct),
+  (discriminantCount, 30, 0, NodeKind.struct),
+  (discriminantOffset, 32, 0, NodeKind.struct)
   ], [
   (displayName, 0, PointerFlag.text, true),
   (nestedNodes, 1, PointerFlag.none, true),
   (annotations, 2, PointerFlag.none, true),
-  (fields, 3, PointerFlag.none, result.kind == NodeKind.struct),
-  (enumerants, 3, PointerFlag.none, result.kind == NodeKind.`enum`),
-  (methods, 3, PointerFlag.none, result.kind == NodeKind.`interface`),
-  (extends, 4, PointerFlag.none, result.kind == NodeKind.`interface`),
-  (const_type, 3, PointerFlag.none, result.kind == NodeKind.`const`),
-  (value, 4, PointerFlag.none, result.kind == NodeKind.`const`),
-  (annotation_type, 3, PointerFlag.none, result.kind == NodeKind.annotation)
+  (fields, 3, PointerFlag.none, NodeKind.struct),
+  (enumerants, 3, PointerFlag.none, NodeKind.`enum`),
+  (methods, 3, PointerFlag.none, NodeKind.`interface`),
+  (extends, 4, PointerFlag.none, NodeKind.`interface`),
+  (const_type, 3, PointerFlag.none, NodeKind.`const`),
+  (value, 4, PointerFlag.none, NodeKind.`const`),
+  (annotation_type, 3, PointerFlag.none, NodeKind.annotation)
   ], [])
 
 makeStructCoders(Annotation, [

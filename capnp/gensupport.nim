@@ -1,17 +1,27 @@
-import macros
+import macros, strutils, capnp/util
 
 type PointerFlag* {.pure.} = enum
   none, text
 
+template kindMatches(obj, v): expr =
+  when v is bool:
+    v
+  else:
+    obj.kind == v
+
 template capnpUnpackScalarMember*(name, fieldOffset, fieldDefault, condition) =
-  if condition:
+  if kindMatches(result, condition):
     if offset + fieldOffset + sizeof(name) > self.buffer.len:
       name = fieldDefault
     else:
       name = self.unpackScalar(offset + fieldOffset, type(name), fieldDefault)
 
+template capnpPackScalarMember*(name, fieldOffset, fieldDefault, condition) =
+  if kindMatches(obj, condition):
+    packScalar(scalarBuffer, fieldOffset, name, fieldDefault)
+
 template capnpUnpackPointerMember*(name, pointerIndex, flag, condition) =
-  if condition:
+  if kindMatches(result, condition):
     name = nil
     if pointerIndex < pointerCount:
       let realOffset = offset + pointerIndex * 8 + dataLength
@@ -21,6 +31,46 @@ template capnpUnpackPointerMember*(name, pointerIndex, flag, condition) =
         else:
           name = self.unpackPointer(realOffset, type(name))
 
+proc isZeros(s: string): bool =
+  for i in s:
+    if i != '\0': return false
+  return true
+
+proc trimWords(s: var string) =
+  while s.len > 0:
+    let offset = ((s.len - 1) div 8) * 8
+    let trailing = s[offset..^(-1)]
+    if isZeros(trailing):
+      s.setLen(offset)
+    else:
+      s &= newZeroString(offset + 8 - s.len)
+      break
+
+template capnpPreparePack*() =
+  trimWords(scalarBuffer)
+  buffer &= scalarBuffer
+  var pointers {.inject.}: seq[bool] = @[]
+
+template capnpPreparePackPointer*(name, offset, condition) =
+  if kindMatches(value, condition):
+    if name != nil and pointers.len <= offset:
+      pointers.setLen offset + 1
+
+template capnpPreparePackFinish*() =
+  let pointerOffset {.inject.} = buffer.len
+  buffer &= newZeroString(pointers.len * 8)
+
+template capnpPackPointer*(name, offset, flag, condition): stmt =
+  if kindMatches(value, condition):
+    when flag == PointerFlag.text:
+      packText(buffer, pointerOffset + offset, name)
+    else:
+      packPointer(buffer, pointerOffset + offset, name)
+
+template capnpPackFinish*(): stmt =
+  assert((scalarBuffer.len mod 8) == 0, "")
+  return (tuple[dataSize: int, pointerCount: int])((scalarBuffer.len div 8, pointers.len))
+
 proc newComplexDotExpr(a: NimNode, b: NimNode): NimNode {.compileTime.} =
   var b = b
   var a = a
@@ -29,7 +79,7 @@ proc newComplexDotExpr(a: NimNode, b: NimNode): NimNode {.compileTime.} =
     b = b[1]
   return newDotExpr(a, b)
 
-macro makeStructCoders*(typeName, scalars, pointers, bitfields): stmt =
+proc makeUnpacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bitfields: NimNode): NimNode {.compiletime.} =
   # capnpUnpackStructImpl is generic to delay instantiation
   result = parseStmt("""proc capnpUnpackStructImpl*[T: XXX](self: Unpacker, offset: int, dataLength: int, pointerCount: int, typ: typedesc[T]): T =
   new(result)""")
@@ -53,4 +103,56 @@ macro makeStructCoders*(typeName, scalars, pointers, bitfields): stmt =
     let condition = p[3]
     body.add(newCall(!"capnpUnpackPointerMember", newComplexDotExpr(resultId, name), offset, flag, condition))
 
+proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bitfields: NimNode): NimNode {.compiletime.} =
+  result = parseStmt("""proc capnpPackStructImpl*[T: XXX](buffer: var string, value: T): tuple[dataSize: int, pointerCount: int] =
+  var scalarBuffer = newZeroString(max(@[0]))""")
+
+  result[0][2][0][1] = typeName # replace XXX
+  let body = result[0][6]
+  let sizesList = body[0][0][2][1][1][1]
+  let valueId = newIdentNode($"value")
+
+  for p in scalars:
+    let name = p[0]
+    let offset = p[1]
+    sizesList.add(newCall(newIdentNode($"+"),  newCall(newIdentNode($"sizeof"), newComplexDotExpr(valueId, name)), offset))
+
+  for p in bitfields:
+    let name = p[0]
+    let offset = p[1]
+    sizesList.add(newLit((offset.intVal + 7) div 8))
+
+  for p in scalars:
+    let name = p[0]
+    let offset = p[1]
+    let default = p[2]
+    let condition = p[3]
+
+    body.add(newCall(!"capnpPackScalarMember", newComplexDotExpr(valueId, name), offset, default, condition))
+
+  body.add(newCall(!"capnpPreparePack"))
+
+  for p in pointers:
+    let name = p[0]
+    let offset = p[1]
+    let condition = p[3]
+
+    body.add(newCall(!"capnpPreparePackPointer", newComplexDotExpr(valueId, name), offset, condition))
+
+  body.add(newCall(!"capnpPreparePackFinish"))
+
+  for p in pointers:
+    let name = p[0]
+    let offset = p[1]
+    let flag = p[2]
+    let condition = p[3]
+
+    body.add(newCall(!"capnpPackPointer", newComplexDotExpr(valueId, name), offset, flag, condition))
+
+  body.add(parseStmt("capnpPackFinish()"))
   result.repr.echo
+
+macro makeStructCoders*(typeName, scalars, pointers, bitfields): stmt =
+  newNimNode(nnkStmtList)
+    .add(makeUnpacker(typeName, scalars, pointers, bitfields))
+    .add(makePacker(typeName, scalars, pointers, bitfields))

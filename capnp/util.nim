@@ -1,4 +1,4 @@
-import endians
+import endians, strutils
 
 type CapnpFormatError* = object of Exception
 
@@ -28,6 +28,12 @@ proc convertEndian*(size: static[int], dst: pointer, src: pointer, endian=little
       else:
         {.error: "Unsupported size".}
 
+proc pack*[T](v: var string, offset: int, value: T, endian=littleEndian) {.inline.} =
+  let minLength = offset + sizeof(T)
+  if minLength > v.len:
+    raise newException(CapnpFormatError, "bad offset")
+  convertEndian(sizeof(T), addr v[offset], unsafeAddr value)
+
 proc unpack*[T](v: string, offset: int, t: typedesc[T], endian=littleEndian): T {.inline.} =
   if not (offset < v.len and offset + sizeof(t) <= v.len and offset >= 0):
     raise newException(CapnpFormatError, "bad offset")
@@ -36,3 +42,6 @@ proc unpack*[T](v: string, offset: int, t: typedesc[T], endian=littleEndian): T 
 proc extractBits*(v: uint64|uint32|uint16|uint8, k: Natural, bits: int): int {.inline.} =
   assert k + bits <= sizeof(v) * 8
   return cast[int]((v shr k) and ((1 shl bits) - 1).uint64)
+
+proc newZeroString*(l: int): string =
+  repeat('\0', l)
