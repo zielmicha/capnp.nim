@@ -137,7 +137,6 @@ proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bitfield
     body.add(newCall(!"capnpPackPointer", newComplexDotExpr(valueId, name), offset, flag, condition))
 
   body.add(parseStmt("capnpPackFinish()"))
-  result.repr.echo
 
 macro makeStructCoders*(typeName, scalars, pointers, bitfields): stmt =
   newNimNode(nnkStmtList)

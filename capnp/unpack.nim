@@ -1,5 +1,6 @@
 import capnp/util
 import capnp/bitseq
+import collections
 
 type SomeInt = int8|int16|int32|int64|uint8|uint16|uint32|uint64
 
@@ -100,6 +101,31 @@ proc unpackInterSegment[T](self: Unpacker, pointer: uint64, typ: typedesc[T]): T
   else:
     raise newException(CapnpFormatError, "two-word pointers not implemented")
 
+proc unpackPointerList[T](self: Unpacker, typ: typedesc[T], target: typedesc[seq[T]], bodyOffset: int, itemSizeTag: int, itemNumber: int): seq[T] =
+  mixin unpackPointer
+  var itemSize: int
+
+  if itemSizeTag != 6:
+    raise newException(CapnpFormatError, "bad item size")
+
+  var target = newSeq[T](itemNumber)
+
+  if itemNumber > bufferLimit or itemNumber * 8 > bufferLimit:
+    raise newException(CapnpFormatError, "list too big")
+
+  let listSize = itemNumber * 8
+
+  if bodyOffset < 0 or listSize < 0 or bodyOffset >= self.buffer.len or bodyOffset + listSize > self.buffer.len:
+    raise newException(CapnpFormatError, "index error")
+
+  deferRestoreStackLimit
+  self.decreaseLimit(listSize)
+
+  for i in 0..<itemNumber:
+    target[i] = unpackPointer(self, bodyOffset + i * 8, typ)
+
+  return target
+
 proc unpackScalarList[T, Target](self: Unpacker, typ: typedesc[T], target: typedesc[Target], bodyOffset: int, itemSizeTag: int, itemNumber: int): Target =
   var itemSize: int
 
@@ -126,7 +152,8 @@ proc unpackScalarList[T, Target](self: Unpacker, typ: typedesc[T], target: typed
 
   let listSize = itemNumber * sizeof(T)
 
-  if bodyOffset < 0 or listSize < 0 or bodyOffset >= self.buffer.len or bodyOffset + listSize > self.buffer.len:
+  if bodyOffset < 0 or listSize < 0 or bodyOffset > self.buffer.len or bodyOffset + listSize > self.buffer.len:
+    echo bodyOffset, " ", listSize, " ", self.buffer.len
     raise newException(CapnpFormatError, "index error")
 
   var buffer = self.buffer
@@ -197,6 +224,8 @@ proc unpackListImpl[T, Target](self: Unpacker, offset: int, typ: typedesc[T], ta
 
   when typ is CapnpScalar:
     return unpackScalarList(self, typ, target, bodyOffset, itemSizeTag, itemNumber)
+  elif typ is seq|string:
+    return unpackPointerList(self, typ, target, bodyOffset, itemSizeTag, itemNumber)
   else:
     return unpackCompositeList(self, typ, bodyOffset, itemSizeTag, itemNumber)
 
@@ -253,10 +282,16 @@ proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   else:
     return unpackStruct(self, offset, typ)
 
-proc unpackText*(self: Unpacker, offset: int, typ: typedesc[string]): string =
-  # strip trailing zero
-  let t = unpackList(self, offset, string)
+proc postprocessText(t: string): string =
   if t == nil: return nil
   if t.len == 0 or t[^1] != '\0':
     raise newException(CapnpFormatError, "text without trailing zero")
   return t[0..(t.len-2)]
+
+proc postprocessText[T](t: seq[T]): seq[T] =
+  if t == nil: return nil
+  else: return t.map(x => postprocessText(x)).toSeq
+
+proc unpackText*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
+  # strip trailing zero
+  return unpackPointer(self, offset, T).postprocessText

@@ -6,6 +6,7 @@ struct Person {
 
   email @1 :Text;
   phones @2 :List(PhoneNumber);
+  notes @4 :List(Text);
 
   struct PhoneNumber {
     number @0 :Text;

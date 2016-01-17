@@ -12,6 +12,7 @@ type
     email*: string
     phones*: seq[Person_PhoneNumber]
     birthdate*: Date
+    notes*: seq[string]
 
   Date* = ref object
     year*: int16
@@ -30,7 +31,8 @@ makeStructCoders(Person, [], [
   (name, 0, PointerFlag.text, true),
   (email, 1, PointerFlag.text, true),
   (phones, 2, PointerFlag.none, true),
-  (birthdate, 3, PointerFlag.none, true)
+  (birthdate, 3, PointerFlag.none, true),
+  (notes, 4, PointerFlag.text, true)
   ], [])
 
 makeStructCoders(Date, [

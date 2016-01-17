@@ -4,6 +4,7 @@ let p = new(Person)
 let d = new(Date)
 p.birthdate = d
 p.name = "Hello"
+p.notes = @[nil, "nope", "just a note", ""]
 p.phones = @[]
 let num = new(Person_PhoneNumber)
 num.number = "hello"

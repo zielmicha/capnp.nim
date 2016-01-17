@@ -1,4 +1,5 @@
 import capnp/util
+import collections
 
 type SomeInt = int8|int16|int32|int64|uint8|uint16|uint32|uint64
 
@@ -28,7 +29,7 @@ proc getSizeTag(s: int): int {.compiletime.} =
     of 8: return 5
     else: doAssert(false, "bad size")
 
-proc packListScalar[T, R](buffer: var string, offset: int, value: T, typ: typedesc[R]) =
+proc packScalarList[T, R](buffer: var string, offset: int, value: T, typ: typedesc[R]) =
   let bodyOffset = buffer.len
   assert bodyOffset mod 8 == 0
 
@@ -36,10 +37,32 @@ proc packListScalar[T, R](buffer: var string, offset: int, value: T, typ: typede
 
   copyMem(addr buffer[bodyOffset], unsafeAddr value[0], value.len * sizeof(typ))
 
+  when cpuEndian == bigEndian:
+    {.error: "TODO: swap items on list".}
+
   buffer.padWords
 
   let itemSizeTag = getSizeTag(sizeof(typ))
 
+  let deltaOffset = (bodyOffset - offset - 8) div 8
+  pack(buffer, offset,
+       1.uint64 or
+       (deltaOffset.uint64 shl 2) or
+       (itemSizeTag.uint64 shl 32) or
+       (value.len.uint64 shl 35))
+
+proc packPointerList[R](buffer: var string, offset: int, value: seq[R], typ: typedesc[R]) =
+  mixin packPointer
+
+  let bodyOffset = buffer.len
+  assert bodyOffset mod 8 == 0
+
+  buffer.setLen bodyOffset + value.len * 8
+
+  for i, item in value:
+    packPointer(buffer, bodyOffset + i * 8, item)
+
+  let itemSizeTag = 6
   let deltaOffset = (bodyOffset - offset - 8) div 8
   pack(buffer, offset,
        1.uint64 or
@@ -88,7 +111,9 @@ proc packListImpl[T, R](buffer: var string, offset: int, value: T, typ: typedesc
   if value == nil:
     return
   when typ is CapnpScalar:
-    packListScalar(buffer, offset, value, typ)
+    packScalarList(buffer, offset, value, typ)
+  elif typ is (seq|string):
+    packPointerList(buffer, offset, value, typ)
   else:
     packCompositeList(buffer, offset, value, typ)
 
@@ -110,16 +135,26 @@ proc packStruct*[T](buffer: var string, offset: int, value: T) =
        (info.pointerCount.uint64 shl 48))
 
 proc packPointer*[T](buffer: var string, offset: int, value: T) =
-  when value is (string|seq):
-    packList(buffer, offset, value)
-  else:
-    packStruct(buffer, offset, value)
-
-proc packText*(buffer: var string, offset: int, value: string) =
   if value == nil:
-    packPointer(buffer, offset, value)
+    pack(buffer, offset, 0.uint64)
   else:
-    packPointer(buffer, offset, value & "\0")
+    when value is (string|seq):
+      packList(buffer, offset, value)
+    else:
+      packStruct(buffer, offset, value)
+
+proc preprocessText(v: string): string =
+  if v == nil: return v
+  else: return v & "\0"
+
+proc preprocessText[T](v: seq[T]): seq[T] =
+  if v == nil:
+    return v
+  else:
+    return v.map(x => preprocessText(x)).toSeq
+
+proc packText*[T](buffer: var string, offset: int, value: T) =
+  packPointer(buffer, offset, preprocessText(value))
 
 proc packStruct*[T](value: T): string =
   result = newZeroString(8)

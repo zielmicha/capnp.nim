@@ -95,6 +95,15 @@ proc makeDefaultValue(self: Generator, typ: Type, val: Value): string =
   else:
     return $0 # TODO
 
+proc isTextType(t: Type): bool =
+  ## is `t` Text or a list containing Text?
+  if t.kind == TypeKind.text:
+    return true
+  elif t.kind == TypeKind.list:
+    return isTextType(t.elementType)
+  else:
+    return false
+
 proc generateStruct(self: Generator, name: string, node: Node) =
   let unionFields = node.fields.filter(f => f.discriminantValue != 0xFFFF).toSeq
   let hasUnion = unionFields.len != 0
@@ -159,7 +168,7 @@ proc generateStruct(self: Generator, name: string, node: Node) =
     let fieldName = prefix & f.name
     if f.kind == FieldKind.slot:
       if f.`type`.kind in {TypeKind.text, TypeKind.data, TypeKind.list, TypeKind.struct}:
-        let flags = if f.`type`.kind == TypeKind.text: "PointerFlag.text" else: "PointerFlag.none"
+        let flags = if isTextType(f.`type`): "PointerFlag.text" else: "PointerFlag.none"
         let s = "($1, $2, $3, $4)" % [quoteFieldId(fieldName), $f.offset, flags, condition]
         pointerCoderArgs.add s
       else:
