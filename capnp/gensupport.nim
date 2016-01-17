@@ -31,24 +31,10 @@ template capnpUnpackPointerMember*(name, pointerIndex, flag, condition) =
         else:
           name = self.unpackPointer(realOffset, type(name))
 
-proc isZeros(s: string): bool =
-  for i in s:
-    if i != '\0': return false
-  return true
-
-proc trimWords(s: var string) =
-  while s.len > 0:
-    let offset = ((s.len - 1) div 8) * 8
-    let trailing = s[offset..^(-1)]
-    if isZeros(trailing):
-      s.setLen(offset)
-    else:
-      s &= newZeroString(offset + 8 - s.len)
-      break
-
 template capnpPreparePack*() =
-  trimWords(scalarBuffer)
-  buffer &= scalarBuffer
+  trimWords(scalarBuffer, minDataSize * 8)
+  if buffer != nil:
+    buffer.insertAt(dataOffset, scalarBuffer)
   var pointers {.inject.}: seq[bool] = @[]
 
 template capnpPreparePackPointer*(name, offset, condition) =
@@ -57,15 +43,16 @@ template capnpPreparePackPointer*(name, offset, condition) =
       pointers.setLen offset + 1
 
 template capnpPreparePackFinish*() =
-  let pointerOffset {.inject.} = buffer.len
-  buffer &= newZeroString(pointers.len * 8)
+  let pointerOffset {.inject.} = dataOffset + scalarBuffer.len
+  if buffer != nil:
+    buffer.insertAt(pointerOffset, newZeroString(pointers.len * 8))
 
 template capnpPackPointer*(name, offset, flag, condition): stmt =
-  if kindMatches(value, condition):
+  if buffer != nil and kindMatches(value, condition):
     when flag == PointerFlag.text:
-      packText(buffer, pointerOffset + offset, name)
+      packText(buffer, pointerOffset + offset * 8, name)
     else:
-      packPointer(buffer, pointerOffset + offset, name)
+      packPointer(buffer, pointerOffset + offset * 8, name)
 
 template capnpPackFinish*(): stmt =
   assert((scalarBuffer.len mod 8) == 0, "")
@@ -104,7 +91,7 @@ proc makeUnpacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bitfie
     body.add(newCall(!"capnpUnpackPointerMember", newComplexDotExpr(resultId, name), offset, flag, condition))
 
 proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bitfields: NimNode): NimNode {.compiletime.} =
-  result = parseStmt("""proc capnpPackStructImpl*[T: XXX](buffer: var string, value: T): tuple[dataSize: int, pointerCount: int] =
+  result = parseStmt("""proc capnpPackStructImpl*[T: XXX](buffer: var string, value: T, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
   var scalarBuffer = newZeroString(max(@[0]))""")
 
   result[0][2][0][1] = typeName # replace XXX
@@ -115,7 +102,7 @@ proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bitfield
   for p in scalars:
     let name = p[0]
     let offset = p[1]
-    sizesList.add(newCall(newIdentNode($"+"),  newCall(newIdentNode($"sizeof"), newComplexDotExpr(valueId, name)), offset))
+    sizesList.add(newCall(newIdentNode($"+"),  newCall(newIdentNode($"capnpSizeof"), newComplexDotExpr(valueId, name)), offset))
 
   for p in bitfields:
     let name = p[0]

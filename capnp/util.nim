@@ -2,7 +2,7 @@ import endians, strutils
 
 type CapnpFormatError* = object of Exception
 
-type CapnpScalar* = uint8 | uint16 | uint32 | uint64 | int8 | int16 | int32 | int64 | float32 | float64
+type CapnpScalar* = uint8 | uint16 | uint32 | uint64 | int8 | int16 | int32 | int64 | float32 | float64 | byte | char
 
 proc convertEndian*(size: static[int], dst: pointer, src: pointer, endian=littleEndian) {.inline.} =
   when size == 1:
@@ -45,3 +45,35 @@ proc extractBits*(v: uint64|uint32|uint16|uint8, k: Natural, bits: int): int {.i
 
 proc newZeroString*(l: int): string =
   repeat('\0', l)
+
+proc isZeros(s: string): bool =
+  for i in s:
+    if i != '\0': return false
+  return true
+
+proc padWords*(s: var string) =
+  if s.len mod 8 != 0:
+    s &= newZeroString(8 - (s.len mod 8))
+
+proc trimWords*(s: var string, minSize=0) =
+  while s.len > minSize:
+    let offset = ((s.len - 1) div 8) * 8
+    let trailing = s[offset..^(-1)]
+    if isZeros(trailing):
+      s.setLen(offset)
+    else:
+      break
+
+  s.padWords
+  if s.len < minSize * 8:
+    s &= newZeroString(minSize - s.len)
+
+proc insertAt*(s: var string, offset: int, data: string) =
+  assert s != nil
+
+  if offset < 0:
+    raise newException(IndexError, "offset < 0")
+  if s.len < offset + data.len:
+    s.setLen offset + data.len
+
+  copyMem(addr s[offset], unsafeAddr data[0], data.len)

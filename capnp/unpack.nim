@@ -158,6 +158,9 @@ proc unpackCompositeList[T](self: Unpacker, typ: typedesc[T], bodyOffset: int, i
   if itemCount > bufferLimit or itemSize > bufferLimit:
     raise newException(CapnpFormatError, "composite list too big")
 
+  if itemSize == 0:
+    raise newException(CapnpFormatError, "empty composite list")
+
   if itemSize * itemCount != wordCount * 8 or ((wordCount * 8 div itemSize) != itemCount):
     raise newException(CapnpFormatError, "composite list size mismatch")
 
@@ -180,6 +183,7 @@ proc unpackListImpl[T, Target](self: Unpacker, offset: int, typ: typedesc[T], ta
     return unpackInterSegment(self, pointer, Target)
   if pointer == 0:
     return nil
+
   if typeTag != 1:
     raise newException(CapnpFormatError, "expected list, found " & $typeTag)
   let bodyOffset = extractBits(pointer, 2, bits=30).unpackOffsetSigned * 8 + offset + 8
@@ -251,8 +255,8 @@ proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
 
 proc unpackText*(self: Unpacker, offset: int, typ: typedesc[string]): string =
   # strip trailing zero
-  let l = unpackList(self, offset, string)
-  if l == nil: return nil
-  if l.len == 0 or l[^1] != '\0':
+  let t = unpackList(self, offset, string)
+  if t == nil: return nil
+  if t.len == 0 or t[^1] != '\0':
     raise newException(CapnpFormatError, "text without trailing zero")
-  return l[0..(l.len-2)]
+  return t[0..(t.len-2)]
