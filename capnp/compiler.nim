@@ -51,7 +51,7 @@ proc type2nim(self: Generator, t: Type): string =
     of TypeKind.bool: return "bool"
     of TypeKind.int8: return "int8"
     of TypeKind.int16: return "int16"
-    of TypeKind.int32: return "int16"
+    of TypeKind.int32: return "int32"
     of TypeKind.int64: return "int64"
     of TypeKind.uint8: return "uint8"
     of TypeKind.uint16: return "uint16"

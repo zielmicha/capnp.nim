@@ -43,8 +43,8 @@ proc extractBits*(v: uint64|uint32|uint16|uint8, k: Natural, bits: int): int {.i
   assert k + bits <= sizeof(v) * 8
   return cast[int]((v shr k) and ((1 shl bits) - 1).uint64)
 
-proc newZeroString*(l: int): string =
-  repeat('\0', l)
+proc newZeroString*(length: int): string =
+  repeat('\0', length)
 
 proc isZeros(s: string): bool =
   for i in s:

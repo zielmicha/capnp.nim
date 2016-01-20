@@ -14,6 +14,8 @@ type Unpacker* = ref object
   segments: seq[string]
   currentSegment: int
 
+proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: int, dataLength: int, pointerCount: int]
+
 template deferRestoreStackLimit(): stmt =
   let old = self.stackLimit
   defer: self.stackLimit = old
@@ -235,7 +237,7 @@ proc unpackList*[T](self: Unpacker, offset: int, target: typedesc[seq[T]]): seq[
 proc unpackList*(self: Unpacker, offset: int, target: typedesc[string]): string =
   return self.unpackListImpl(offset, byte, string)
 
-proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: int, dataLength: int, pointerCount: int] =
+proc parseStruct(self: Unpacker, offset: int, parseOffset=true): tuple[offset: int, dataLength: int, pointerCount: int] =
   let pointer = unpack(self.buffer, offset, uint64)
   let typ = extractBits(pointer, 0, bits=2)
 

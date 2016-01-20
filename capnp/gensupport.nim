@@ -1,4 +1,4 @@
-import macros, strutils, capnp/util
+import macros, strutils, capnp/util, capnp/unpack, capnp/pack
 
 type PointerFlag* {.pure.} = enum
   none, text
@@ -11,7 +11,7 @@ template kindMatches(obj, v): expr =
 
 template capnpUnpackScalarMember*(name, fieldOffset, fieldDefault, condition) =
   if kindMatches(result, condition):
-    if offset + fieldOffset + sizeof(name) > self.buffer.len:
+    if fieldOffset + sizeof(name) > dataLength:
       name = fieldDefault
     else:
       name = self.unpackScalar(offset + fieldOffset, type(name), fieldDefault)
@@ -25,16 +25,16 @@ template capnpUnpackPointerMember*(name, pointerIndex, flag, condition) =
     name = nil
     if pointerIndex < pointerCount:
       let realOffset = offset + pointerIndex * 8 + dataLength
-      if realOffset + 8 <= self.buffer.len:
+      if realOffset + 8 <= buffer(self).len:
         when flag == PointerFlag.text:
-          name = self.unpackText(realOffset, type(name))
+          name = unpackText(self, realOffset, type(name))
         else:
-          name = self.unpackPointer(realOffset, type(name))
+          name = unpackPointer(self, realOffset, type(name))
 
 template capnpPreparePack*() =
   trimWords(scalarBuffer, minDataSize * 8)
-  if buffer != nil:
-    buffer.insertAt(dataOffset, scalarBuffer)
+  if bufferM != nil:
+    bufferM.insertAt(dataOffset, scalarBuffer)
   var pointers {.inject.}: seq[bool] = @[]
 
 template capnpPreparePackPointer*(name, offset, condition) =
@@ -44,15 +44,15 @@ template capnpPreparePackPointer*(name, offset, condition) =
 
 template capnpPreparePackFinish*() =
   let pointerOffset {.inject.} = dataOffset + scalarBuffer.len
-  if buffer != nil:
-    buffer.insertAt(pointerOffset, newZeroString(pointers.len * 8))
+  if bufferM != nil:
+    bufferM.insertAt(pointerOffset, newZeroString(pointers.len * 8))
 
 template capnpPackPointer*(name, offset, flag, condition): stmt =
-  if buffer != nil and kindMatches(value, condition):
+  if bufferM != nil and kindMatches(value, condition):
     when flag == PointerFlag.text:
-      packText(buffer, pointerOffset + offset * 8, name)
+      packText(bufferM, pointerOffset + offset * 8, name)
     else:
-      packPointer(buffer, pointerOffset + offset * 8, name)
+      packPointer(bufferM, pointerOffset + offset * 8, name)
 
 template capnpPackFinish*(): stmt =
   assert((scalarBuffer.len mod 8) == 0, "")
@@ -91,7 +91,8 @@ proc makeUnpacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bitfie
     body.add(newCall(!"capnpUnpackPointerMember", newComplexDotExpr(resultId, name), offset, flag, condition))
 
 proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bitfields: NimNode): NimNode {.compiletime.} =
-  result = parseStmt("""proc capnpPackStructImpl*[T: XXX](buffer: var string, value: T, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
+  # bufferM should be named buffer, but compiler manages to confuse it with buffer proc in unpack
+  result = parseStmt("""proc capnpPackStructImpl*[T: XXX](bufferM: var string, value: T, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
   var scalarBuffer = newZeroString(max(@[0]))""")
 
   result[0][2][0][1] = typeName # replace XXX

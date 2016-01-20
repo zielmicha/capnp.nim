@@ -9,6 +9,8 @@ proc capnpSizeof*[T: SomeInt|float32|float64](t: T): int=
 proc capnpSizeof*[T: enum](t: T): int=
   sizeof(uint16)
 
+proc packPointer*[T](buffer: var string, offset: int, value: T)
+
 proc packScalar*[T: SomeInt](v: var string, offset: int, value: T, defaultValue: T) =
   pack(v, offset, value xor defaultValue)
 
@@ -31,6 +33,7 @@ proc getSizeTag(s: int): int {.compiletime.} =
 
 proc packScalarList[T, R](buffer: var string, offset: int, value: T, typ: typedesc[R]) =
   let bodyOffset = buffer.len
+  assert buffer != nil
   assert bodyOffset mod 8 == 0
 
   buffer.setLen bodyOffset + value.len * sizeof(typ)
@@ -136,7 +139,8 @@ proc packStruct*[T](buffer: var string, offset: int, value: T) =
 
 proc packPointer*[T](buffer: var string, offset: int, value: T) =
   if value == nil:
-    pack(buffer, offset, 0.uint64)
+    if offset + 8 <= buffer.len:
+      pack(buffer, offset, 0.uint64)
   else:
     when value is (string|seq):
       packList(buffer, offset, value)
