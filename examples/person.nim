@@ -3,6 +3,8 @@ import persondef, capnp/pack, capnp/unpack
 let p = new(Person)
 let d = new(Date)
 p.birthdate = d
+p.isAwesome = true
+p.isCloseFriend = false
 p.name = "Hello"
 p.notes = @[nil, "nope", "just a note", ""]
 p.phones = @[]

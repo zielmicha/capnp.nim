@@ -85,15 +85,25 @@ proc typesize(t: Type): int =
     of TypeKind.float32: return 4
     of TypeKind.float64: return 8
     of TypeKind.`enum`: return 2
-    else: doAssert(false)
+    else: doAssert(false, "bad type $1" % $t.kind)
 
 proc makeDefaultValue(self: Generator, typ: Type, val: Value): string =
   case typ.kind:
+  of TypeKind.bool: return $(if val.bool: "true" else: "false")
+  of TypeKind.int8: return $(val.int8)
+  of TypeKind.int16: return $(val.int16)
+  of TypeKind.int32: return $(val.int32)
+  of TypeKind.int64: return $(val.int64)
+  of TypeKind.uint8: return $(val.uint8)
   of TypeKind.uint16: return $(val.uint16)
+  of TypeKind.uint32: return $(val.uint32)
+  of TypeKind.uint64: return $(val.uint64)
+  of TypeKind.float32: return $(val.float32) # risky, we probably need exact value
+  of TypeKind.float64: return $(val.float64)
   of TypeKind.`enum`:
     return "$1($2)" % [self.typeNames[typ.enum_typeId], $val.`enum`]
   else:
-    return $0 # TODO
+    doAssert(false, "bad type $1" % $typ.kind)
 
 proc isTextType(t: Type): bool =
   ## is `t` Text or a list containing Text?
@@ -151,7 +161,7 @@ proc generateStruct(self: Generator, name: string, node: Node) =
       s &= "    of $1Kind.$2:\n" % [name, quoteId(subfields.name)]
       unionCoders.add((subfields.name, @[]))
 
-      let goodFields = subfields.fields.filter(f => f.`type`.kind notin {TypeKind.void, TypeKind.anypointer, TypeKind.bool}).toSeq
+      let goodFields = subfields.fields.filter(f => f.`type`.kind notin {TypeKind.void, TypeKind.anypointer}).toSeq
       if goodFields.len == 0:
         s &= "      discard\n"
       for field in goodFields:
@@ -161,6 +171,7 @@ proc generateStruct(self: Generator, name: string, node: Node) =
 
   var pointerCoderArgs: seq[string] = @[]
   var scalarCoderArgs: seq[string] = @[]
+  var boolCoderArgs: seq[string] = @[]
 
   proc addCoderFields(node: Node, prefix: string, condition: string)
 
@@ -171,6 +182,10 @@ proc generateStruct(self: Generator, name: string, node: Node) =
         let flags = if isTextType(f.`type`): "PointerFlag.text" else: "PointerFlag.none"
         let s = "($1, $2, $3, $4)" % [quoteFieldId(fieldName), $f.offset, flags, condition]
         pointerCoderArgs.add s
+      elif f.`type`.kind == TypeKind.bool:
+        let defaultVal = self.makeDefaultValue(f.`type`, f.defaultValue)
+        let s = "($1, $2, $3, $4)" % [quoteFieldId(fieldName), $(f.offset.int), defaultVal, condition]
+        boolCoderArgs.add s
       else:
         # TODO: default
         let defaultVal = self.makeDefaultValue(f.`type`, f.defaultValue)
@@ -196,10 +211,11 @@ proc generateStruct(self: Generator, name: string, node: Node) =
     if v.len == 0: return ""
     else: return "\n  " & v.join(",\n  ") & "\n  "
 
-  self.bottom &= "makeStructCoders($1, [$2], [$3], [])\n\n" % [
+  self.bottom &= "makeStructCoders($1, [$2], [$3], [$4])\n\n" % [
     name,
     scalarCoderArgs.joinList(),
-    pointerCoderArgs.joinList()
+    pointerCoderArgs.joinList(),
+    boolCoderArgs.joinList()
   ]
 
   self.addToplevel(s)

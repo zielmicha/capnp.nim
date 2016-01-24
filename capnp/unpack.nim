@@ -76,6 +76,12 @@ proc unpackScalar*(self: Unpacker, offset: int, typ: typedesc[float64], defaultV
 proc unpackScalar*[T: enum](self: Unpacker, offset: int, typ: typedesc[T], defaultValue: T=T.low): T =
   return self.unpackScalar(offset, uint16, defaultValue.uint16).T
 
+proc unpackBool*(self: Unpacker, baseOffset: int, bitOffset: int, defaultValue: bool): bool =
+  let offset = baseOffset + bitOffset div 8
+  let bit = bitOffset mod 8
+  let byteValue = unpack(buffer(self), offset, uint8)
+  return ((byteValue and (1 shl bit).uint8) != 0) xor defaultValue
+
 proc unpackOffsetSigned(num: int): int =
   # TODO: check with C++ code if this is correct
   if (num and (1 shr 30)) != 0:

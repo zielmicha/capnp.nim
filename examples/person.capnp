@@ -8,6 +8,9 @@ struct Person {
   phones @2 :List(PhoneNumber);
   notes @4 :List(Text);
 
+  isAwesome @5 :Bool;
+  isCloseFriend @6 :Bool = true;
+
   struct PhoneNumber {
     number @0 :Text;
     type @1 :Type;

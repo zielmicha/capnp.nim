@@ -13,6 +13,8 @@ type
     phones*: seq[Person_PhoneNumber]
     birthdate*: Date
     notes*: seq[string]
+    isAwesome*: bool
+    isCloseFriend*: bool
 
   Date* = ref object
     year*: int16
@@ -33,7 +35,10 @@ makeStructCoders(Person, [], [
   (phones, 2, PointerFlag.none, true),
   (birthdate, 3, PointerFlag.none, true),
   (notes, 4, PointerFlag.text, true)
-  ], [])
+  ], [
+  (isAwesome, 0, false, true),
+  (isCloseFriend, 1, true, true)
+  ])
 
 makeStructCoders(Date, [
   (year, 0, 0, true),

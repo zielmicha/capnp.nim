@@ -26,6 +26,7 @@ type
       offset*: uint32
       `type`*: Type
       defaultValue*: Value
+      hadExplicitDefault*: bool
     of FieldKind.group:
       typeId*: uint64
 
@@ -55,13 +56,13 @@ type
     of ValueKind.void:
       discard
     of ValueKind.bool:
-      discard
+      bool*: bool
     of ValueKind.int8:
       int8*: int8
     of ValueKind.int16:
       int16*: int16
     of ValueKind.int32:
-      int32*: int16
+      int32*: int32
     of ValueKind.int64:
       int64*: int64
     of ValueKind.uint8:
@@ -164,6 +165,7 @@ type
       dataWordCount*: uint16
       pointerCount*: uint16
       preferredListEncoding*: ElementSize
+      isGroup*: bool
       discriminantCount*: uint16
       discriminantOffset*: uint32
       fields*: seq[Field]
@@ -177,6 +179,18 @@ type
       value*: Value
     of NodeKind.annotation:
       annotation_type*: Type
+      targetsFile*: bool
+      targetsConst*: bool
+      targetsEnum*: bool
+      targetsEnumerant*: bool
+      targetsStruct*: bool
+      targetsField*: bool
+      targetsUnion*: bool
+      targetsGroup*: bool
+      targetsInterface*: bool
+      targetsMethod*: bool
+      targetsParam*: bool
+      targetsAnnotation*: bool
 
   Annotation* = ref object
     id*: uint64
@@ -211,7 +225,9 @@ makeStructCoders(Field, [
   (annotations, 1, PointerFlag.none, true),
   (`type`, 2, PointerFlag.none, FieldKind.slot),
   (defaultValue, 3, PointerFlag.none, FieldKind.slot)
-  ], [])
+  ], [
+  (hadExplicitDefault, 128, false, FieldKind.slot)
+  ])
 
 makeStructCoders(CodeGeneratorRequest_RequestedFile_Import, [
   (id, 0, 0, true)
@@ -239,13 +255,15 @@ makeStructCoders(Value, [
   (uint16, 2, 0, ValueKind.uint16),
   (uint32, 4, 0, ValueKind.uint32),
   (uint64, 8, 0, ValueKind.uint64),
-  (float32, 4, 0, ValueKind.float32),
-  (float64, 8, 0, ValueKind.float64),
+  (float32, 4, 0.0, ValueKind.float32),
+  (float64, 8, 0.0, ValueKind.float64),
   (`enum`, 2, 0, ValueKind.`enum`)
   ], [
   (text, 0, PointerFlag.text, ValueKind.text),
   (data, 0, PointerFlag.none, ValueKind.data)
-  ], [])
+  ], [
+  (bool, 16, false, ValueKind.bool)
+  ])
 
 makeStructCoders(CodeGeneratorRequest_RequestedFile, [
   (id, 0, 0, true)
@@ -290,7 +308,21 @@ makeStructCoders(Node, [
   (const_type, 3, PointerFlag.none, NodeKind.`const`),
   (value, 4, PointerFlag.none, NodeKind.`const`),
   (annotation_type, 3, PointerFlag.none, NodeKind.annotation)
-  ], [])
+  ], [
+  (isGroup, 224, false, NodeKind.struct),
+  (targetsFile, 112, false, NodeKind.annotation),
+  (targetsConst, 113, false, NodeKind.annotation),
+  (targetsEnum, 114, false, NodeKind.annotation),
+  (targetsEnumerant, 115, false, NodeKind.annotation),
+  (targetsStruct, 116, false, NodeKind.annotation),
+  (targetsField, 117, false, NodeKind.annotation),
+  (targetsUnion, 118, false, NodeKind.annotation),
+  (targetsGroup, 119, false, NodeKind.annotation),
+  (targetsInterface, 120, false, NodeKind.annotation),
+  (targetsMethod, 121, false, NodeKind.annotation),
+  (targetsParam, 122, false, NodeKind.annotation),
+  (targetsAnnotation, 123, false, NodeKind.annotation)
+  ])
 
 makeStructCoders(Annotation, [
   (id, 0, 0, true)

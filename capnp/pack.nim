@@ -23,6 +23,16 @@ proc packScalar*(v: var string, offset: int, value: float64, defaultValue: float
 proc packScalar*[T: enum](v: var string, offset: int, value: T, defaultValue: T) =
   packScalar(v, offset, cast[uint16](value), cast[uint16](defaultValue))
 
+proc packBool*(v: var string, bitOffset: int, value: bool, defaultValue: bool) =
+  let offset = bitOffset div 8
+  let bit = bitOffset mod 8
+  if value xor defaultValue:
+    v[offset] = (v[offset].uint8 or (1 shl bit).uint8).char
+  else:
+    v[offset] = (v[offset].uint8 and (not (1 shl bit).uint8)).char
+
+  echo "stored ", bit, " ", v[offset].int
+
 proc getSizeTag(s: int): int {.compiletime.} =
   case s:
     of 1: return 2
