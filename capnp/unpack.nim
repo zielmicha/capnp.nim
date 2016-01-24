@@ -83,11 +83,12 @@ proc unpackBool*(self: Unpacker, baseOffset: int, bitOffset: int, defaultValue: 
   return ((byteValue and (1 shl bit).uint8) != 0) xor defaultValue
 
 proc unpackOffsetSigned(num: int): int =
-  # TODO: check with C++ code if this is correct
-  if (num and (1 shr 30)) != 0:
-    return (num and ((1 shr 30) - 1)) - (1 shr 30)
+  if (num and (1 shl 29)) != 0:
+    return (num and ((1 shl 29) - 1)) - (1 shl 29)
   else:
     return num
+
+assert unpackOffsetSigned(1073741823) == -1
 
 proc unpackInterSegment[T](self: Unpacker, pointer: uint64, typ: typedesc[T]): T =
   mixin unpackPointer
@@ -100,6 +101,7 @@ proc unpackInterSegment[T](self: Unpacker, pointer: uint64, typ: typedesc[T]): T
   let offset = extractBits(pointer, 3, bits=29) * 8
   let newSegment = extractBits(pointer, 32, bits=32)
   let oldSegment = self.currentSegment
+
 
   self.currentSegment = newSegment
   defer: self.currentSegment = oldSegment
@@ -161,7 +163,6 @@ proc unpackScalarList[T, Target](self: Unpacker, typ: typedesc[T], target: typed
   let listSize = itemNumber * sizeof(T)
 
   if bodyOffset < 0 or listSize < 0 or bodyOffset > self.buffer.len or bodyOffset + listSize > self.buffer.len:
-    echo bodyOffset, " ", listSize, " ", self.buffer.len
     raise newException(CapnpFormatError, "index error")
 
   var buffer = self.buffer
@@ -221,6 +222,7 @@ proc unpackListImpl[T, Target](self: Unpacker, offset: int, typ: typedesc[T], ta
 
   if typeTag != 1:
     raise newException(CapnpFormatError, "expected list, found " & $typeTag)
+
   let bodyOffset = extractBits(pointer, 2, bits=30).unpackOffsetSigned * 8 + offset + 8
   let itemSizeTag = extractBits(pointer, 32, bits=3)
   let itemNumber = extractBits(pointer, 35, bits=29)
