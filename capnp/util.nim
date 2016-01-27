@@ -2,7 +2,7 @@ import endians, strutils
 
 type CapnpFormatError* = object of Exception
 
-type CapnpScalar* = uint8 | uint16 | uint32 | uint64 | int8 | int16 | int32 | int64 | float32 | float64 | byte | char
+type CapnpScalar* = uint8 | uint16 | uint32 | uint64 | int8 | int16 | int32 | int64 | float32 | float64 | byte | char | enum
 
 proc convertEndian*(size: static[int], dst: pointer, src: pointer, endian=littleEndian) {.inline.} =
   when size == 1:

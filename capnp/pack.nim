@@ -3,11 +3,14 @@ import collections
 
 type SomeInt = int8|int16|int32|int64|uint8|uint16|uint32|uint64
 
-proc capnpSizeof*[T: SomeInt|float32|float64](t: T): int=
+proc capnpSizeofT*[T: SomeInt|float32|float64](t: typedesc[T]): int=
   sizeof(T)
 
-proc capnpSizeof*[T: enum](t: T): int=
+proc capnpSizeofT*[T: enum](t: typedesc[T]): int=
   sizeof(uint16)
+
+template capnpSizeof*(e): expr =
+  capnpSizeofT(type(e))
 
 proc packPointer*[T](buffer: var string, offset: int, value: T)
 
@@ -30,8 +33,6 @@ proc packBool*(v: var string, bitOffset: int, value: bool, defaultValue: bool) =
     v[offset] = (v[offset].uint8 or (1 shl bit).uint8).char
   else:
     v[offset] = (v[offset].uint8 and (not (1 shl bit).uint8)).char
-
-  echo "stored ", bit, " ", v[offset].int
 
 proc getSizeTag(s: int): int {.compiletime.} =
   case s:

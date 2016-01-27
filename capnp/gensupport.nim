@@ -24,11 +24,11 @@ template capnpUnpackBoolMember*(name, fieldOffset, fieldDefault, condition) =
       name = self.unpackBool(offset, fieldOffset, defaultValue=fieldDefault)
 
 template capnpPackScalarMember*(name, fieldOffset, fieldDefault, condition) =
-  if kindMatches(obj, condition):
+  if kindMatches(value, condition):
     packScalar(scalarBuffer, fieldOffset, name, fieldDefault)
 
 template capnpPackBoolMember*(name, fieldOffset, fieldDefault, condition) =
-  if kindMatches(obj, condition):
+  if kindMatches(value, condition):
     packBool(scalarBuffer, fieldOffset, name, fieldDefault)
 
 template capnpUnpackPointerMember*(name, pointerIndex, flag, condition) =

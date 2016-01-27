@@ -187,7 +187,6 @@ proc generateStruct(self: Generator, name: string, node: Node) =
         let s = "($1, $2, $3, $4)" % [quoteFieldId(fieldName), $(f.offset.int), defaultVal, condition]
         boolCoderArgs.add s
       else:
-        # TODO: default
         let defaultVal = self.makeDefaultValue(f.`type`, f.defaultValue)
         let s = "($1, $2, $3, $4)" % [quoteFieldId(fieldName), $(f.offset.int * f.`type`.typesize), defaultVal, condition]
         scalarCoderArgs.add s
