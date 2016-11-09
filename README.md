@@ -11,6 +11,13 @@ Use [nimble](https://github.com/nim-lang/nimble) to install `capnp.nim`:
 nimble install capnp
 ```
 
+Creates symlink to `canpnc` binary result. Capnp compiler expect `capnpc-nim` binary
+but nimble unable to produce binary name that contains `-`.
+
+```
+ln -s ~/.nimble/bin/capnpc ~/.nimble/bin/capnpc-nim
+```
+
 ## Generating wrapping code
 
 capnp.nim can generate Nim types (with some metadata) from `.capnp` file. The resulting objects use native Nim datatypes like seq or strings (this means that this implementation, unlike C++ one, doesn't have O(1) deserialization time). 

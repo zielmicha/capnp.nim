@@ -234,7 +234,7 @@ proc generateType(self: Generator, id: uint64) =
   elif node.kind == NodeKind.`enum`:
     self.generateEnum(name, node)
 
-proc generateCode(req: CodeGeneratorRequest) =
+proc generateCode*(req: CodeGeneratorRequest) =
   let self = new(Generator)
   self.nodes = initTable[uint64, Node]()
   self.typeNames = initTable[uint64, string]()
