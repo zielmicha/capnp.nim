@@ -11,8 +11,8 @@ Use [nimble](https://github.com/nim-lang/nimble) to install `capnp.nim`:
 nimble install capnp
 ```
 
-Creates symlink to `canpnc` binary result. Capnp compiler expect `capnpc-nim` binary
-but nimble unable to produce binary name that contains `-`.
+Create symlink to `canpnc` binary result (capnp compiler expects `capnpc-nim` binary,
+but Nimble is unable to produce binary name that contains `-`):
 
 ```
 ln -s ~/.nimble/bin/capnpc ~/.nimble/bin/capnpc-nim

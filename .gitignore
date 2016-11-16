@@ -4,3 +4,6 @@ nimcache
 !*.*
 !LICENSE
 nimcache/
+/nimenv.local
+/nim.cfg
+*.ndb
