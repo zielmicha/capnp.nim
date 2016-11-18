@@ -1,12 +1,9 @@
-import capnp/util
-import capnp/bitseq
+when not compiles(isInCapnp): {.error: "do not import this file directly".}
 import collections
 
-type SomeInt = int8|int16|int32|int64|uint8|uint16|uint32|uint64
-
 const
-  bufferLimit = 64 * 1024 * 1024
-  stackLimit = 128
+  bufferLimit* = 64 * 1024 * 1024
+  stackLimit* = 128
 
 type Unpacker* = ref object
   readLimit: int
@@ -91,8 +88,6 @@ proc unpackOffsetSigned(num: int): int =
 assert unpackOffsetSigned(1073741823) == -1
 
 proc unpackInterSegment[T](self: Unpacker, pointer: uint64, typ: typedesc[T]): T =
-  mixin unpackPointer
-
   let typeTag = extractBits(pointer, 0, bits=2)
   if typeTag != 2:
     raise newException(CapnpFormatError, "expected intersegment pointer")
@@ -102,12 +97,12 @@ proc unpackInterSegment[T](self: Unpacker, pointer: uint64, typ: typedesc[T]): T
   let newSegment = extractBits(pointer, 32, bits=32)
   let oldSegment = self.currentSegment
 
-
   self.currentSegment = newSegment
   defer: self.currentSegment = oldSegment
 
   if oneWord:
-    return self.unpackPointer(offset, typ)
+    mixin unpackPointer
+    return unpackPointer(self, offset, typ)
   else:
     raise newException(CapnpFormatError, "two-word pointers not implemented")
 
@@ -230,7 +225,7 @@ proc unpackListImpl[T, Target](self: Unpacker, offset: int, typ: typedesc[T], ta
   when typ is bool: # bitseq
     if itemSizeTag != 1:
       raise newException(CapnpFormatError, "expected bitseq")
-    return newBitSeq(buffer, offset, itemSize)
+    return newBitSeq(buffer, offset, itemSize) # FIXME
 
   when typ is CapnpScalar:
     return unpackScalarList(self, typ, target, bodyOffset, itemSizeTag, itemNumber)
@@ -273,7 +268,7 @@ proc parseStruct(self: Unpacker, offset: int, parseOffset=true): tuple[offset: i
     if result.offset < 0 or result.offset >= self.buffer.len or result.offset + result.dataLength > self.buffer.len or result.offset + result.dataLength + result.pointerCount * 8 > self.buffer.len:
       raise newException(CapnpFormatError, "index error")
 
-proc unpackStruct*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
+proc unpackStruct[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   let pointer = unpack(self.buffer, offset, uint64)
   if extractBits(pointer, 0, bits=2) == 2:
     return unpackInterSegment(self, pointer, T)
@@ -283,8 +278,6 @@ proc unpackStruct*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   deferRestoreStackLimit
   self.decreaseLimit(s.pointerCount * 8 + s.pointerCount)
   return capnpUnpackStructImpl(self, s.offset, s.dataLength, s.pointerCount, typ)
-
-import typetraits
 
 proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   when typ is seq or typ is string:
@@ -300,7 +293,7 @@ proc postprocessText(t: string): string =
 
 proc postprocessText[T](t: seq[T]): seq[T] =
   if t == nil: return nil
-  else: return t.map(x => postprocessText(x)).toSeq
+  else: return t.map(x => postprocessText(x))
 
 proc unpackText*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   # strip trailing zero

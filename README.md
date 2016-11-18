@@ -1,7 +1,7 @@
 # capnp.nim
 Cap'n Proto bindings for Nim
 
-capnp.nim is a Nim implementation of Cap'n Proto serialization scheme. It's work in progress, see [TODO.md](TODO.md). The RPC features are not implemented now, but will probably be someday.
+capnp.nim is a Nim implementation of Cap'n Proto serialization scheme. Serialization/deserialization is work in progress, but most thing are implemented (see [TODO.md](TODO.md)). The RPC features are currently in works.
 
 ## Installing
 
@@ -29,8 +29,8 @@ capnp compile -onim your-protocol-file.capnp > you-output-file.nim
 ## Using the library 
 
 ```
-import persondef, capnp/pack, capnp/unpack
-# unpack raw serialized data
+import persondef, capnp
+# unpack the raw serialized data
 let p: Person = newUnpackerFlat(packed).unpackStruct(0, Person)
 # and pack again
 let packed2 = packStruct(p)

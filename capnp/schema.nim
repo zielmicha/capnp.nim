@@ -1,4 +1,4 @@
-import capnp/util, capnp/unpack, capnp/pack, capnp/gensupport
+import capnp, capnp/gensupport
 type
   Method* = ref object
     name*: string

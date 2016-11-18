@@ -1,4 +1,4 @@
-import capnp/util, capnp/unpack, capnp/pack, capnp/gensupport
+import capnp, capnp/gensupport
 type
   Person_PhoneNumber* = ref object
     number*: string

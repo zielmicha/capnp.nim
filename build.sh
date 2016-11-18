@@ -56,8 +56,29 @@ get_dep() {
 echo "path: \".\"" > nim.cfg
 
 get_dep collections https://github.com/zielmicha/collections.nim 001b4acb54d08efec9aee69d5b8ec54a58bff72a ''
+get_dep reactor https://github.com/zielmicha/reactor.nim 99944d035adae1cb3728298d15486d14a09e51fc ''
 
-echo 'debugger: "native"' >> nim.cfg
+echo 'debugger: "native"
+
+# reactor.nim required pthreads
+threads: "on"
+
+verbosity: "0"
+hint[Processing]: "off"
+
+@if release:
+  gcc.options.always = "-w -fno-strict-overflow"
+  gcc.cpp.options.always = "-w -fno-strict-overflow"
+  clang.options.always = "-w -fno-strict-overflow"
+  clang.cpp.options.always = "-w -fno-strict-overflow"
+
+  passC:"-ffunction-sections -fdata-sections -flto"
+  passL:"-Wl,--gc-sections -flto"
+
+  obj_checks: on
+  field_checks: on
+  bound_checks: on
+@end' >> nim.cfg
 
 mkdir -p bin
 ln -sf ../.nimenv/nim/bin/nim bin/nim

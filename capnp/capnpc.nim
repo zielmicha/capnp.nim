@@ -1,4 +1,4 @@
-import capnp/unpack, capnp/schema, capnp/compiler
+import capnp, capnp/compiler, capnp/schema
 
 when isMainModule:
   let data = readAll(stdin)

@@ -1,4 +1,4 @@
-import persondef, capnp/pack, capnp/unpack
+import persondef, capnp
 
 let p = new(Person)
 let d = new(Date)
@@ -26,5 +26,5 @@ echo packed.repr
 
 writeFile("person.bin", packed)
 
-let p1 = newUnpackerFlat(packed).unpackStruct(0, Person)
+let p1 = newUnpackerFlat(packed).unpackPointer(0, Person)
 echo p1.repr

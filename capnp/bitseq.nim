@@ -1,4 +1,4 @@
-import capnp/util
+when not compiles(isInCapnp): {.error: "do not import this file directly".}
 
 type
   BitSeq* = object

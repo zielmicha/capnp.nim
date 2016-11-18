@@ -1,4 +1,4 @@
-import capnp/schema, capnp/unpack, tables, hashes, collections/base, collections/iterate, collections/misc, strutils, tables
+import capnp/schema, capnp, tables, hashes, collections/base, collections/iterate, collections/misc, strutils, tables
 
 type
   Generator* = ref object
@@ -70,7 +70,7 @@ proc type2nim(self: Generator, t: Type): string =
     of TypeKind.`interface`:
       return self.typeNames[t.interface_typeId]
     of TypeKind.anyPointer:
-      return "anypointer" # TODO
+      return "AnyPointer"
 
 proc typesize(t: Type): int =
   case t.kind:
@@ -178,7 +178,7 @@ proc generateStruct(self: Generator, name: string, node: Node) =
   proc addCoderField(f: Field, prefix: string, condition: string) =
     let fieldName = prefix & f.name
     if f.kind == FieldKind.slot:
-      if f.`type`.kind in {TypeKind.text, TypeKind.data, TypeKind.list, TypeKind.struct}:
+      if f.`type`.kind in {TypeKind.text, TypeKind.data, TypeKind.list, TypeKind.struct, TypeKind.anyPointer}:
         let flags = if isTextType(f.`type`): "PointerFlag.text" else: "PointerFlag.none"
         let s = "($1, $2, $3, $4)" % [quoteFieldId(fieldName), $f.offset, flags, condition]
         pointerCoderArgs.add s
@@ -251,7 +251,7 @@ proc generateCode*(req: CodeGeneratorRequest) =
   for id in sorted(self.typeNames.keys):
     self.generateType(id)
 
-  echo "import capnp/util, capnp/unpack, capnp/pack, capnp/gensupport\ntype\n" & self.toplevel
+  echo "import capnp, capnp/gensupport\ntype\n" & self.toplevel
   echo()
   echo self.bottom
 

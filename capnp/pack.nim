@@ -1,16 +1,5 @@
-import capnp/util
+when not compiles(isInCapnp): {.error: "do not import this file directly".}
 import collections
-
-type SomeInt = int8|int16|int32|int64|uint8|uint16|uint32|uint64
-
-proc capnpSizeofT*[T: SomeInt|float32|float64](t: typedesc[T]): int=
-  sizeof(T)
-
-proc capnpSizeofT*[T: enum](t: typedesc[T]): int=
-  sizeof(uint16)
-
-template capnpSizeof*(e): expr =
-  capnpSizeofT(type(e))
 
 proc packPointer*[T](buffer: var string, offset: int, value: T)
 
@@ -166,7 +155,7 @@ proc preprocessText[T](v: seq[T]): seq[T] =
   if v == nil:
     return v
   else:
-    return v.map(x => preprocessText(x)).toSeq
+    return v.map(x => preprocessText(x))
 
 proc packText*[T](buffer: var string, offset: int, value: T) =
   packPointer(buffer, offset, preprocessText(value))

@@ -1,9 +1,10 @@
-import macros, strutils, capnp/util, capnp/unpack, capnp/pack
+import macros, strutils, capnp
 
 type PointerFlag* {.pure.} = enum
   none, text
 
 template kindMatches(obj, v): expr =
+  assert obj != nil
   when v is bool:
     v
   else:

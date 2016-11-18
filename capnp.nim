@@ -1,8 +1,7 @@
-import capnp/util
-export CapnpFormatError
-
-import capnp/unpack
-export unpackPointer, unpackBool, newUnpacker, newUnpackerFlat, unpackStruct
-
-import capnp/pack
-export packStruct
+const isInCapnp = true
+include capnp/util
+include capnp/bitseq
+include capnp/common
+include capnp/unpack
+include capnp/pack
+include capnp/copying
