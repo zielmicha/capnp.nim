@@ -3,7 +3,7 @@ import macros, strutils, capnp
 type PointerFlag* {.pure.} = enum
   none, text
 
-template kindMatches(obj, v): expr =
+template kindMatches(obj, v): typed =
   assert obj != nil
   when v is bool:
     v
@@ -59,14 +59,14 @@ template capnpPreparePackFinish*() =
   if bufferM != nil:
     bufferM.insertAt(pointerOffset, newZeroString(pointers.len * 8))
 
-template capnpPackPointer*(name, offset, flag, condition): stmt =
+template capnpPackPointer*(name, offset, flag, condition): untyped =
   if bufferM != nil and kindMatches(value, condition):
     when flag == PointerFlag.text:
-      packText(bufferM, pointerOffset + offset * 8, name)
+      packText(p, pointerOffset + offset * 8, name)
     else:
-      packPointer(bufferM, pointerOffset + offset * 8, name)
+      packPointer(p, pointerOffset + offset * 8, name)
 
-template capnpPackFinish*(): stmt =
+template capnpPackFinish*(): untyped =
   assert((scalarBuffer.len mod 8) == 0, "")
   return (tuple[dataSize: int, pointerCount: int])((scalarBuffer.len div 8, pointers.len))
 
@@ -111,7 +111,7 @@ proc makeUnpacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools:
 
 proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools: NimNode): NimNode {.compiletime.} =
   # bufferM should be named buffer, but compiler manages to confuse it with buffer proc in unpack
-  result = parseStmt("""proc capnpPackStructImpl*[T: XXX](bufferM: var string, value: T, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
+  result = parseStmt("""proc capnpPackStructImpl*[T: XXX](p: Packer, bufferM: var string, value: T, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
   var scalarBuffer = newZeroString(max(@[0]))""")
 
   result[0][2][0][1] = typeName # replace XXX
@@ -125,7 +125,6 @@ proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools: N
     sizesList.add(newCall(newIdentNode($"+"),  newCall(newIdentNode($"capnpSizeof"), newComplexDotExpr(valueId, name)), offset))
 
   for p in bools:
-    let name = p[0]
     let offset = p[1]
     sizesList.add(newLit((offset.intVal + 7) div 8))
 
@@ -166,7 +165,7 @@ proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools: N
 
   body.add(parseStmt("capnpPackFinish()"))
 
-macro makeStructCoders*(typeName, scalars, pointers, bitfields): stmt =
+macro makeStructCoders*(typeName, scalars, pointers, bitfields): untyped =
   newNimNode(nnkStmtList)
     .add(makeUnpacker(typeName, scalars, pointers, bitfields))
     .add(makePacker(typeName, scalars, pointers, bitfields))

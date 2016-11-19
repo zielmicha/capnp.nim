@@ -1,7 +1,10 @@
 when not compiles(isInCapnp): {.error: "do not import this file directly".}
 import collections
 
-proc packPointer*[T](buffer: var string, offset: int, value: T)
+type Packer* = ref object
+  buffer*: string
+
+proc packPointer*[T](p: Packer, offset: int, value: T)
 
 proc packScalar*[T: SomeInt](v: var string, offset: int, value: T, defaultValue: T) =
   pack(v, offset, value xor defaultValue)
@@ -31,49 +34,49 @@ proc getSizeTag(s: int): int {.compiletime.} =
     of 8: return 5
     else: doAssert(false, "bad size")
 
-proc packScalarList[T, R](buffer: var string, offset: int, value: T, typ: typedesc[R]) =
-  let bodyOffset = buffer.len
-  assert buffer != nil
+proc packScalarList[T, R](p: Packer, offset: int, value: T, typ: typedesc[R]) =
+  assert p.buffer != nil
+  let bodyOffset = p.buffer.len
   assert bodyOffset mod 8 == 0
 
-  buffer.setLen bodyOffset + value.len * sizeof(typ)
+  p.buffer.setLen bodyOffset + value.len * sizeof(typ)
 
-  copyMem(addr buffer[bodyOffset], unsafeAddr value[0], value.len * sizeof(typ))
+  copyMem(addr p.buffer[bodyOffset], unsafeAddr value[0], value.len * sizeof(typ))
 
   when cpuEndian == bigEndian:
     {.error: "TODO: swap items on list".}
 
-  buffer.padWords
+  p.buffer.padWords
 
   let itemSizeTag = getSizeTag(sizeof(typ))
 
   let deltaOffset = (bodyOffset - offset - 8) div 8
-  pack(buffer, offset,
+  pack(p.buffer, offset,
        1.uint64 or
        (deltaOffset.uint64 shl 2) or
        (itemSizeTag.uint64 shl 32) or
        (value.len.uint64 shl 35))
 
-proc packPointerList[R](buffer: var string, offset: int, value: seq[R], typ: typedesc[R]) =
+proc packPointerList[R](p: Packer, offset: int, value: seq[R], typ: typedesc[R]) =
   mixin packPointer
 
-  let bodyOffset = buffer.len
+  let bodyOffset = p.buffer.len
   assert bodyOffset mod 8 == 0
 
-  buffer.setLen bodyOffset + value.len * 8
+  p.buffer.setLen bodyOffset + value.len * 8
 
   for i, item in value:
-    packPointer(buffer, bodyOffset + i * 8, item)
+    packPointer(p, bodyOffset + i * 8, item)
 
   let itemSizeTag = 6
   let deltaOffset = (bodyOffset - offset - 8) div 8
-  pack(buffer, offset,
+  pack(p.buffer, offset,
        1.uint64 or
        (deltaOffset.uint64 shl 2) or
        (itemSizeTag.uint64 shl 32) or
        (value.len.uint64 shl 35))
 
-proc packCompositeList[R](buffer: var string, offset: int, value: seq[R], typ: typedesc[R]) =
+proc packCompositeList[R](p: Packer, offset: int, value: seq[R], typ: typedesc[R]) =
   mixin capnpPackStructImpl
 
   var dataSize = 0
@@ -81,71 +84,70 @@ proc packCompositeList[R](buffer: var string, offset: int, value: seq[R], typ: t
 
   for item in value:
     var fakeBuffer: string = nil
-    let info = capnpPackStructImpl(fakeBuffer, item, 0)
+    let info = capnpPackStructImpl(p, fakeBuffer, item, 0)
     dataSize = max(dataSize, info.dataSize)
     pointerCount = max(pointerCount, info.pointerCount)
 
   let structLength = (dataSize + pointerCount) * 8
   let wordCount = (dataSize + pointerCount) * value.len
 
-  let bodyOffset = buffer.len
-  buffer.add newZeroString(8)
-  let dataOffset = buffer.len
-  buffer.add newZeroString(structLength * value.len)
+  let bodyOffset = p.buffer.len
+  p.buffer.add newZeroString(8)
+  let dataOffset = p.buffer.len
+  p.buffer.add newZeroString(structLength * value.len)
 
   for i, item in value:
-    let beforeOffset = buffer.len
-    discard capnpPackStructImpl(buffer, item, dataOffset + i * structLength, minDataSize=dataSize)
+    discard capnpPackStructImpl(p, p.buffer, item, dataOffset + i * structLength, minDataSize=dataSize)
 
   let deltaOffset = (bodyOffset - offset - 8) div 8
-  pack(buffer, offset,
+  pack(p.buffer, offset,
        1.uint64 or
        (deltaOffset.uint64 shl 2) or
        (7.uint64 shl 32) or
        (wordCount.uint64 shl 35))
 
-  pack(buffer, bodyOffset,
+  pack(p.buffer, bodyOffset,
        0.uint64 or
        (value.len.uint64 shl 2) or
        (dataSize.uint64 shl 32) or
        (pointerCount.uint64 shl 48))
 
-proc packListImpl[T, R](buffer: var string, offset: int, value: T, typ: typedesc[R]) =
+proc packListImpl[T, R](p: Packer, offset: int, value: T, typ: typedesc[R]) =
   if value == nil:
     return
   when typ is CapnpScalar:
-    packScalarList(buffer, offset, value, typ)
+    packScalarList(p, offset, value, typ)
   elif typ is (seq|string):
-    packPointerList(buffer, offset, value, typ)
+    packPointerList(p, offset, value, typ)
   else:
-    packCompositeList(buffer, offset, value, typ)
+    packCompositeList(p, offset, value, typ)
 
-proc packList*[T](buffer: var string, offset: int, value: seq[T]) =
-  packListImpl(buffer, offset, value, T)
+proc packList*[T](p: Packer, offset: int, value: seq[T]) =
+  packListImpl(p, offset, value, T)
 
-proc packList*(buffer: var string, offset: int, value: string) =
-  packListImpl(buffer, offset, value, byte)
+proc packList*(p: Packer, offset: int, value: string) =
+  packListImpl(p, offset, value, byte)
 
-proc packStruct*[T](buffer: var string, offset: int, value: T) =
+proc packStruct*[T](p: Packer, offset: int, value: T) =
   mixin capnpPackStructImpl
 
-  let dataOffset = buffer.len
-  let info = capnpPackStructImpl(buffer, value, dataOffset)
+  let dataOffset = p.buffer.len
+  let info = capnpPackStructImpl(p, p.buffer, value, dataOffset)
   let deltaOffset = (dataOffset - offset - 8) div 8
-  pack(buffer, offset,
+  pack(p.buffer, offset,
        (deltaOffset.uint64 shl 2) or
        (info.dataSize.uint64 shl 32) or
        (info.pointerCount.uint64 shl 48))
 
-proc packPointer*[T](buffer: var string, offset: int, value: T) =
+proc packPointer*[T](p: Packer, offset: int, value: T) =
   if value == nil:
-    if offset + 8 <= buffer.len:
-      pack(buffer, offset, 0.uint64)
+    if offset + 8 <= p.buffer.len:
+      pack(p.buffer, offset, 0.uint64)
   else:
     when value is (string|seq):
-      packList(buffer, offset, value)
+      packList(p, offset, value)
     else:
-      packStruct(buffer, offset, value)
+      packStruct(p, offset, value)
 
 proc preprocessText(v: string): string =
   if v == nil: return v
@@ -157,9 +159,10 @@ proc preprocessText[T](v: seq[T]): seq[T] =
   else:
     return v.map(x => preprocessText(x))
 
-proc packText*[T](buffer: var string, offset: int, value: T) =
-  packPointer(buffer, offset, preprocessText(value))
+proc packText*[T](p: Packer, offset: int, value: T) =
+  packPointer(p, offset, preprocessText(value))
 
 proc packStruct*[T](value: T): string =
-  result = newZeroString(8)
-  packStruct(result, 0, value)
+  let packer = Packer(buffer: newZeroString(8))
+  packStruct(packer, 0, value)
+  return packer.buffer

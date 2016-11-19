@@ -34,7 +34,7 @@ proc toAnyPointer*[T](t: T): AnyPointer =
   result.unwrap = proc(p: pointer) = (cast[ptr T](p))[] = t
   result.pack = proc(buffer: var string, offset: int) = packPointer(buffer, offset, t)
 
-proc capnpPackStructImpl*(bufferM: var string, value: AnyPointer, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
+proc capnpPackStructImpl*(p: Packer, bufferM: var string, value: AnyPointer, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
   doAssert(false)
 
 proc capnpUnpackStructImpl*(self: Unpacker, offset: int, dataLength: int, pointerCount: int, typ: typedesc[AnyPointer]): AnyPointer =

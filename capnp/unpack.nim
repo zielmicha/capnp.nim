@@ -13,7 +13,7 @@ type Unpacker* = ref object
 
 proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: int, dataLength: int, pointerCount: int]
 
-template deferRestoreStackLimit(): stmt =
+template deferRestoreStackLimit(): untyped =
   let old = self.stackLimit
   defer: self.stackLimit = old
 
@@ -108,7 +108,6 @@ proc unpackInterSegment[T](self: Unpacker, pointer: uint64, typ: typedesc[T]): T
 
 proc unpackPointerList[T](self: Unpacker, typ: typedesc[T], target: typedesc[seq[T]], bodyOffset: int, itemSizeTag: int, itemNumber: int): seq[T] =
   mixin unpackPointer
-  var itemSize: int
 
   if itemSizeTag != 6:
     raise newException(CapnpFormatError, "bad item size")
