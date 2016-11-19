@@ -1,5 +1,5 @@
 when not compiles(isInCapnp): {.error: "do not import this file directly".}
-import endians, strutils, sequtils, typetraits
+import endians, strutils, sequtils, typetraits, collections/reflect
 
 type CapnpFormatError* = object of Exception
 

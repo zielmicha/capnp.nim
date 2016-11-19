@@ -5,7 +5,7 @@ import caprpc/rpcschema
 proc main() {.async.} =
   let server = await createTcpServer(901)
   asyncFor conn in server.incomingConnections:
-    asyncFor msg in msgstream.wrapStream(conn.input, Message):
+    asyncFor msg in msgstream.wrapByteStream(conn.input, Message):
       echo msg.repr
 
 when isMainModule:

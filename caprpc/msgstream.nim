@@ -25,22 +25,22 @@ proc readSegments*(stream: Stream[byte]): Future[string] {.async.} =
   s &= await stream.read(dataLength)
   return s
 
-proc wrapStream*[T](stream: Stream[byte], t: typedesc[T]): Stream[T] {.asynciterator.} =
+proc wrapByteStream*[T](stream: Stream[byte], t: typedesc[T]): Stream[T] {.asynciterator.} =
   ## Create a stream for receiving capn'p messages from byte stream.
   while true:
     let packed = await readSegments(stream)
     let val = newUnpacker(packed).unpackPointer(0, T)
     asyncYield val
 
-#[
-proc wrapProvider*[T](stream: Provider[byte]): Provider[T] =
+proc pipeMsg[T](stream: Stream[T], provider: ByteProvider) {.async.} =
+  asyncFor msg in stream:
+    await provider.write(packStruct(msg))
+
+proc wrapByteProvider*[T](byteprovider: ByteProvider, t: typedesc[T]): Provider[T] =
   ## Create a provider for sending messages over byte provider.
-  let (stream, provider) = newStreamProviderPair()
-
-  proc pipe() {.async.} =
-    asyncFor msg in stream:
-      await stream.write(packStruct(msg))
-
-  pipe().onErrorClose(stream)
+  let (stream, provider) = newStreamProviderPair[T]()
+  pipeMsg(stream, byteprovider).onErrorClose(stream)
   return provider
-]#
+
+proc wrapBytePipe*[T](pipe: BytePipe, t: typedesc[T]): Pipe[T] =
+  return Pipe[T](input: wrapByteStream(pipe.input, T), output: wrapByteProvider(pipe.output, T))
