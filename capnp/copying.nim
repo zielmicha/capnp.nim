@@ -15,7 +15,7 @@ type
       dataLength: int
     of AnyPointerKind.obj:
       typeIndex: int
-      pack: proc(buffer: var string, offset: int)
+      pack: proc(p: Packer, offset: int)
       unwrap: proc(dest: pointer)
 
 proc castAs*[T](self: AnyPointer, ty: typedesc[T]): T =
@@ -29,10 +29,14 @@ proc castAs*[T](self: AnyPointer, ty: typedesc[T]): T =
       self.unwrap(addr result)
 
 proc toAnyPointer*[T](t: T): AnyPointer =
+  result = new(AnyPointer)
   result.kind = AnyPointerKind.obj
   result.typeIndex = getTypeIndex(T)
   result.unwrap = proc(p: pointer) = (cast[ptr T](p))[] = t
-  result.pack = proc(buffer: var string, offset: int) = packPointer(buffer, offset, t)
+  result.pack = proc(p: Packer, offset: int) = packPointer(p, offset, t)
+
+proc unpackPointer*(self: Unpacker, offset: int, typ: typedesc[AnyPointer]): AnyPointer =
+  return nil
 
 proc capnpPackStructImpl*(p: Packer, bufferM: var string, value: AnyPointer, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
   doAssert(false)

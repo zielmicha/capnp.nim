@@ -34,7 +34,10 @@ proc wrapByteStream*[T](stream: Stream[byte], t: typedesc[T]): Stream[T] {.async
 
 proc pipeMsg[T](stream: Stream[T], provider: ByteProvider) {.async.} =
   asyncFor msg in stream:
-    await provider.write(packStruct(msg))
+    let serialized = packStruct(msg)
+    let lengthInWords = len(serialized) div 8
+    assert len(serialized) mod 8 == 0
+    await provider.write(pack(0.uint32) & pack(lengthInWords.uint32) & serialized)
 
 proc wrapByteProvider*[T](byteprovider: ByteProvider, t: typedesc[T]): Provider[T] =
   ## Create a provider for sending messages over byte provider.

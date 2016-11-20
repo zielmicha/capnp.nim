@@ -7,7 +7,7 @@ type
 
   Connection* = object of Pipe[Message]
 
-  CapServer* = distinct Interface
+  CapServer* = proc(ifaceId: uint64, capId: uint64, payload: Payload): Payload
 
 interfaceMethods VatNetwork:
   connect(vatId: AnyPointer): Connection
@@ -17,6 +17,3 @@ interfaceMethods VatNetwork:
 
   accept(): Future[Connection]
   ## Waits for connection from a remote vat.
-
-interfaceMethods CapServer:
-  call(capId: uint64, payload: Payload): Payload
