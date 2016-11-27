@@ -10,6 +10,7 @@ type Unpacker* = ref object
   stackLimit: int
   segments: seq[string]
   currentSegment: int
+  getInterface: (proc(id: int): RootRef)
 
 proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: int, dataLength: int, pointerCount: int]
 
@@ -25,11 +26,11 @@ proc decreaseLimit(self: Unpacker, size: int) =
   if self.readLimit < 0:
     raise newException(CapnpFormatError, "recursion (read) limit reached")
 
-proc newUnpackerFlat*(buffer: string): Unpacker =
+proc newUnpacker*(segments: seq[string]): Unpacker =
   new(result)
   result.readLimit = bufferLimit
   result.stackLimit = stackLimit
-  result.segments = @[buffer]
+  result.segments = segments
   result.currentSegment = 0
 
 proc buffer*(self: Unpacker): string {.inline.} =
@@ -55,11 +56,10 @@ proc parseMultiSegment(buffer: string): seq[string] =
     index += length
 
 proc newUnpacker*(buffer: string): Unpacker =
-  new(result)
-  result.readLimit = bufferLimit
-  result.stackLimit = stackLimit
-  result.segments = parseMultiSegment(buffer)
-  result.currentSegment = 0
+  return newUnpacker(parseMultiSegment(buffer))
+
+proc newUnpackerFlat*(buffer: string): Unpacker =
+  return newUnpacker(@[buffer])
 
 proc unpackScalar*[T: SomeInt](self: Unpacker, offset: int, typ: typedesc[T], defaultValue: T=0): T =
   return unpack(self.buffer, offset, typ) xor defaultValue
@@ -138,7 +138,9 @@ proc unpackScalarList[T, Target](self: Unpacker, typ: typedesc[T], target: typed
   of 3: itemSize = 2
   of 4: itemSize = 4
   of 5: itemSize = 8
-  else: raise newException(CapnpFormatError, "bad item size")
+  of 7:
+    raise newException(CapnpFormatError, "expected scalar list, found list of composites (maybe you need to update your schema?)")
+  else: raise newException(CapnpFormatError, "bad item size: " & ($itemSizeTag))
 
   if sizeof(T) != itemSize:
     raise newException(CapnpFormatError, "bad item size")

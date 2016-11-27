@@ -4,21 +4,22 @@ type
     unpacker
     obj
 
-  AnyPointer* = ref object of RootObj
+  AnyPointerImpl* = ref object of RootObj
     # AnyPointer can be created in two ways: either by unpacking Capnp object or by wrapping a Nim one.
     case kind: AnyPointerKind
     of AnyPointerKind.unpacker:
       unpacker: Unpacker
       segment: int
       offset: int
-      pointerCount: int
-      dataLength: int
     of AnyPointerKind.obj:
       typeIndex: int
       pack: proc(p: Packer, offset: int)
       unwrap: proc(dest: pointer)
 
-proc castAs*[T](self: AnyPointer, ty: typedesc[T]): T =
+forwardRefImpl(AnyPointer, AnyPointerImpl)
+
+proc castAs*[T](selfR: AnyPointer, ty: typedesc[T]): T =
+  let self: AnyPointerImpl = selfR
   case self.kind:
     of AnyPointerKind.unpacker:
       self.unpacker.currentSegment = self.segment
@@ -29,23 +30,18 @@ proc castAs*[T](self: AnyPointer, ty: typedesc[T]): T =
       self.unwrap(addr result)
 
 proc toAnyPointer*[T](t: T): AnyPointer =
-  result = new(AnyPointer)
-  result.kind = AnyPointerKind.obj
-  result.typeIndex = getTypeIndex(T)
-  result.unwrap = proc(p: pointer) = (cast[ptr T](p))[] = t
-  result.pack = proc(p: Packer, offset: int) = packPointer(p, offset, t)
+  let self = new(AnyPointerImpl)
+  self.kind = AnyPointerKind.obj
+  self.typeIndex = getTypeIndex(T)
+  self.unwrap = proc(p: pointer) = (cast[ptr T](p))[] = t
+  self.pack = proc(p: Packer, offset: int) = packPointer(p, offset, t)
+  return self
 
 proc unpackPointer*(self: Unpacker, offset: int, typ: typedesc[AnyPointer]): AnyPointer =
-  return nil
+  return AnyPointerImpl(kind: AnyPointerKind.unpacker,
+                        unpacker: self,
+                        segment: self.currentSegment,
+                        offset: offset)
 
 proc capnpPackStructImpl*(p: Packer, bufferM: var string, value: AnyPointer, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
   doAssert(false)
-
-proc capnpUnpackStructImpl*(self: Unpacker, offset: int, dataLength: int, pointerCount: int, typ: typedesc[AnyPointer]): AnyPointer =
-  # TODO
-  return AnyPointer(kind: AnyPointerKind.unpacker,
-                    unpacker: self,
-                    segment: self.currentSegment,
-                    offset: offset,
-                    pointerCount: pointerCount,
-                    dataLength: dataLength)

@@ -7,7 +7,7 @@ type
 
   Connection* = object of Pipe[Message]
 
-  CapServer* = proc(ifaceId: uint64, capId: uint64, payload: Payload): Payload
+  CapServer* = proc(ifaceId: uint64, capId: uint64, payload: AnyPointer): AnyPointer
 
 interfaceMethods VatNetwork:
   connect(vatId: AnyPointer): Connection

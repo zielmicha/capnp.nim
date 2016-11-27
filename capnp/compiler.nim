@@ -20,6 +20,7 @@ proc walkType(self: Generator, id: uint64, prefix: string="") =
     self.typeNames[child.id] = name
     self.walkType(child.id, name & "_")
 
+  # echo("walking ", id, " ", node.kind)
   if node.kind == NodeKind.struct:
     for field in node.fields:
       if field.kind == FieldKind.group:
@@ -161,7 +162,7 @@ proc generateStruct(self: Generator, name: string, node: Node) =
       s &= "    of $1Kind.$2:\n" % [name, quoteId(subfields.name)]
       unionCoders.add((subfields.name, @[]))
 
-      let goodFields = subfields.fields.filter(f => f.`type`.kind notin {TypeKind.void, TypeKind.anypointer}).toSeq
+      let goodFields = subfields.fields.filter(f => f.kind == FieldKind.slot and f.`type`.kind notin {TypeKind.void, TypeKind.anypointer}).toSeq
       if goodFields.len == 0:
         s &= "      discard\n"
       for field in goodFields:
@@ -254,9 +255,3 @@ proc generateCode*(req: CodeGeneratorRequest) =
   echo "import capnp, capnp/gensupport\ntype\n" & self.toplevel
   echo()
   echo self.bottom
-
-when isMainModule:
-  let data = readAll(stdin)
-  let req = newUnpacker(data).unpackStruct(0, CodeGeneratorRequest)
-
-  generateCode(req)
