@@ -10,7 +10,7 @@ type Unpacker* = ref object
   stackLimit: int
   segments: seq[string]
   currentSegment: int
-  getInterface: (proc(id: int): RootRef)
+  getCap*: (proc(id: int): CapServer)
 
 proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: int, dataLength: int, pointerCount: int]
 
@@ -32,6 +32,8 @@ proc newUnpacker*(segments: seq[string]): Unpacker =
   result.stackLimit = stackLimit
   result.segments = segments
   result.currentSegment = 0
+  result.getCap = proc(id: int): CapServer =
+                      raise newException(Exception, "this unpacker doesn't support capabilities")
 
 proc buffer*(self: Unpacker): string {.inline.} =
   self.segments[self.currentSegment]
@@ -280,9 +282,27 @@ proc unpackStruct[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   self.decreaseLimit(s.pointerCount * 8 + s.pointerCount)
   return capnpUnpackStructImpl(self, s.offset, s.dataLength, s.pointerCount, typ)
 
+proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
+  mixin createFromCap
+
+  let pointer = unpack(self.buffer, offset, uint64)
+  if extractBits(pointer, 0, bits=2) != 3:
+    raise newException(CapnpFormatError, "expected capability, found something else")
+
+  let kind = extractBits(pointer, 3, bits=30)
+  if kind != 0:
+    raise newException(CapnpFormatError, "found unknown 'other' pointer")
+
+  let capId = extractBits(pointer, 32, bits=32)
+  return createFromCap(T, self.getCap(capId))
+
 proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
+  mixin createFromCap
+
   when typ is seq or typ is string:
     return unpackList(self, offset, typ)
+  elif compiles(createFromCap(T, CapServer(Interface()))):
+    return unpackCap(self, offset, typ)
   else:
     return unpackStruct(self, offset, typ)
 

@@ -13,8 +13,8 @@ proc newTwoPartyNetwork*(pipe: BytePipe, side: Side): TwoPartyNetwork =
   let msgPipe = msgstream.wrapBytePipe(pipe, rpcschema.Message)
   result.conn = Connection(input: msgPipe.input, output: msgPipe.output)
 
-proc bootstrap*(sys: RpcSystem): Cap =
-  return sys.bootstrap(VatId(side: Side.server).toAnyPointer)
+proc bootstrap*(sys: RpcSystem): Future[AnyPointer] =
+  return sys.bootstrap("server")
 
 proc accept*(self: TwoPartyNetwork): Future[Connection] =
   if self.side == Side.server:
@@ -26,8 +26,20 @@ proc accept*(self: TwoPartyNetwork): Future[Connection] =
   else:
     return waitForever(Connection)
 
-proc connect*(self: TwoPartyNetwork, id: AnyPointer): Connection =
-  let side = id.castAs(VatId).side
+proc vatIdToPointer*(self: TwoPartyNetwork, id: common.VatId): AnyPointer =
+  if id == "server":
+    return twopartyschema.VatId(side: Side.server).toAnyPointer
+  else:
+    return twopartyschema.VatId(side: Side.client).toAnyPointer
+
+proc vatIdFromPointer*(self: TwoPartyNetwork, id: AnyPointer): common.VatId =
+  if id.castAs(twopartyschema.VatId).side == Side.server:
+    return "server"
+  else:
+    return "client"
+
+proc connect*(self: TwoPartyNetwork, id: common.VatId): Connection =
+  let side = self.vatIdToPointer(id).castAs(twopartyschema.VatId).side
   if side == self.side:
     raise newException(system.Exception, "cannot connect to self")
 
@@ -35,7 +47,7 @@ proc connect*(self: TwoPartyNetwork, id: AnyPointer): Connection =
 
 proc newTwoPartyClient*(pipe: BytePipe): RpcSystem =
   let net = newTwoPartyNetwork(pipe, Side.client)
-  return newRpcSystem(net.asVatNetwork, nil)
+  return newRpcSystem(net.asVatNetwork)
 
 proc newTwoPartyServer*(pipe: BytePipe, myBootstrap: CapServer): RpcSystem =
   let net = newTwoPartyNetwork(pipe, Side.server)

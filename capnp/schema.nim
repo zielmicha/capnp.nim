@@ -1,11 +1,17 @@
 import capnp, capnp/gensupport
 type
+  Brand* = ref object
+    scopes*: seq[Brand_Scope]
+
   Method* = ref object
     name*: string
     codeOrder*: uint16
     paramStructType*: uint64
     resultStructType*: uint64
     annotations*: seq[Annotation]
+    paramBrand*: Brand
+    resultBrand*: Brand
+    implicitParameters*: seq[Node_Parameter]
 
   Enumerant* = ref object
     name*: string
@@ -30,8 +36,26 @@ type
     of FieldKind.group:
       typeId*: uint64
 
+  Superclass* = ref object
+    id*: uint64
+    brand*: Brand
+
+  Brand_ScopeKind* {.pure.} = enum
+    `bind` = 0, inherit = 1
+
+  Brand_Scope* = ref object
+    scopeId*: uint64
+    case kind*: Brand_ScopeKind:
+    of Brand_ScopeKind.`bind`:
+      `bind`*: seq[Brand_Binding]
+    of Brand_ScopeKind.inherit:
+      discard
+
   CodeGeneratorRequest_RequestedFile_Import* = ref object
     id*: uint64
+    name*: string
+
+  Node_Parameter* = ref object
     name*: string
 
   Field_ordinalKind* {.pure.} = enum
@@ -47,6 +71,16 @@ type
   CodeGeneratorRequest* = ref object
     nodes*: seq[Node]
     requestedFiles*: seq[CodeGeneratorRequest_RequestedFile]
+
+  Brand_BindingKind* {.pure.} = enum
+    unbound = 0, `type` = 1
+
+  Brand_Binding* = ref object
+    case kind*: Brand_BindingKind:
+    of Brand_BindingKind.unbound:
+      discard
+    of Brand_BindingKind.`type`:
+      `type`*: Type
 
   ValueKind* {.pure.} = enum
     void = 0, bool = 1, int8 = 2, int16 = 3, int32 = 4, int64 = 5, uint8 = 6, uint16 = 7, uint32 = 8, uint64 = 9, float32 = 10, float64 = 11, text = 12, data = 13, list = 14, `enum` = 15, struct = 16, `interface` = 17, anyPointer = 18
@@ -134,10 +168,13 @@ type
       elementType*: Type
     of TypeKind.`enum`:
       enum_typeId*: uint64
+      enum_brand*: Brand
     of TypeKind.struct:
       struct_typeId*: uint64
+      struct_brand*: Brand
     of TypeKind.`interface`:
       interface_typeId*: uint64
+      interface_brand*: Brand
     of TypeKind.anyPointer:
       discard
 
@@ -158,6 +195,8 @@ type
     scopeId*: uint64
     nestedNodes*: seq[Node_NestedNode]
     annotations*: seq[Annotation]
+    parameters*: seq[Node_Parameter]
+    isGeneric*: bool
     case kind*: NodeKind:
     of NodeKind.file:
       discard
@@ -173,7 +212,7 @@ type
       enumerants*: seq[Enumerant]
     of NodeKind.`interface`:
       methods*: seq[Method]
-      extends*: seq[uint64]
+      superclasses*: seq[Superclass]
     of NodeKind.`const`:
       const_type*: Type
       value*: Value
@@ -195,8 +234,13 @@ type
   Annotation* = ref object
     id*: uint64
     value*: Value
+    brand*: Brand
 
 
+
+makeStructCoders(Brand, [], [
+  (scopes, 0, PointerFlag.none, true)
+  ], [])
 
 makeStructCoders(Method, [
   (codeOrder, 0, 0, true),
@@ -204,7 +248,10 @@ makeStructCoders(Method, [
   (resultStructType, 16, 0, true)
   ], [
   (name, 0, PointerFlag.text, true),
-  (annotations, 1, PointerFlag.none, true)
+  (annotations, 1, PointerFlag.none, true),
+  (paramBrand, 2, PointerFlag.none, true),
+  (resultBrand, 3, PointerFlag.none, true),
+  (implicitParameters, 4, PointerFlag.none, true)
   ], [])
 
 makeStructCoders(Enumerant, [
@@ -229,9 +276,26 @@ makeStructCoders(Field, [
   (hadExplicitDefault, 128, false, FieldKind.slot)
   ])
 
+makeStructCoders(Superclass, [
+  (id, 0, 0, true)
+  ], [
+  (brand, 0, PointerFlag.none, true)
+  ], [])
+
+makeStructCoders(Brand_Scope, [
+  (scopeId, 0, 0, true),
+  (kind, 8, low(Brand_ScopeKind), true)
+  ], [
+  (`bind`, 0, PointerFlag.none, Brand_ScopeKind.`bind`)
+  ], [])
+
 makeStructCoders(CodeGeneratorRequest_RequestedFile_Import, [
   (id, 0, 0, true)
   ], [
+  (name, 0, PointerFlag.text, true)
+  ], [])
+
+makeStructCoders(Node_Parameter, [], [
   (name, 0, PointerFlag.text, true)
   ], [])
 
@@ -243,6 +307,12 @@ makeStructCoders(Field_ordinal, [
 makeStructCoders(CodeGeneratorRequest, [], [
   (nodes, 0, PointerFlag.none, true),
   (requestedFiles, 1, PointerFlag.none, true)
+  ], [])
+
+makeStructCoders(Brand_Binding, [
+  (kind, 0, low(Brand_BindingKind), true)
+  ], [
+  (`type`, 0, PointerFlag.none, Brand_BindingKind.`type`)
   ], [])
 
 makeStructCoders(Value, [
@@ -278,7 +348,10 @@ makeStructCoders(Type, [
   (struct_typeId, 8, 0, TypeKind.struct),
   (interface_typeId, 8, 0, TypeKind.`interface`)
   ], [
-  (elementType, 0, PointerFlag.none, TypeKind.list)
+  (elementType, 0, PointerFlag.none, TypeKind.list),
+  (enum_brand, 0, PointerFlag.none, TypeKind.`enum`),
+  (struct_brand, 0, PointerFlag.none, TypeKind.struct),
+  (interface_brand, 0, PointerFlag.none, TypeKind.`interface`)
   ], [])
 
 makeStructCoders(Node_NestedNode, [
@@ -301,14 +374,16 @@ makeStructCoders(Node, [
   (displayName, 0, PointerFlag.text, true),
   (nestedNodes, 1, PointerFlag.none, true),
   (annotations, 2, PointerFlag.none, true),
+  (parameters, 5, PointerFlag.none, true),
   (fields, 3, PointerFlag.none, NodeKind.struct),
   (enumerants, 3, PointerFlag.none, NodeKind.`enum`),
   (methods, 3, PointerFlag.none, NodeKind.`interface`),
-  (extends, 4, PointerFlag.none, NodeKind.`interface`),
+  (superclasses, 4, PointerFlag.none, NodeKind.`interface`),
   (const_type, 3, PointerFlag.none, NodeKind.`const`),
   (value, 4, PointerFlag.none, NodeKind.`const`),
   (annotation_type, 3, PointerFlag.none, NodeKind.annotation)
   ], [
+  (isGeneric, 288, false, true),
   (isGroup, 224, false, NodeKind.struct),
   (targetsFile, 112, false, NodeKind.annotation),
   (targetsConst, 113, false, NodeKind.annotation),
@@ -327,7 +402,8 @@ makeStructCoders(Node, [
 makeStructCoders(Annotation, [
   (id, 0, 0, true)
   ], [
-  (value, 0, PointerFlag.none, true)
+  (value, 0, PointerFlag.none, true),
+  (brand, 1, PointerFlag.none, true)
   ], [])
 
 

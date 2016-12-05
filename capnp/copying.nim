@@ -34,8 +34,13 @@ proc toAnyPointer*[T](t: T): AnyPointer =
   self.kind = AnyPointerKind.obj
   self.typeIndex = getTypeIndex(T)
   self.unwrap = proc(p: pointer) = (cast[ptr T](p))[] = t
-  self.pack = proc(p: Packer, offset: int) = packPointer(p, offset, t)
+  self.pack = proc(p: Packer, offset: int) =
+    packPointer(p, offset, t)
   return self
+
+proc setCapGetter*(p: AnyPointer, r: (proc(id: int): CapServer)) =
+  # a bit hacky, assumes one interface getter per unpacker
+  AnyPointerImpl(p).unpacker.getCap = r
 
 proc unpackPointer*(self: Unpacker, offset: int, typ: typedesc[AnyPointer]): AnyPointer =
   return AnyPointerImpl(kind: AnyPointerKind.unpacker,
@@ -43,5 +48,25 @@ proc unpackPointer*(self: Unpacker, offset: int, typ: typedesc[AnyPointer]): Any
                         segment: self.currentSegment,
                         offset: offset)
 
-proc capnpPackStructImpl*(p: Packer, bufferM: var string, value: AnyPointer, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
-  doAssert(false)
+proc packPointer*[](p: Packer, offset: int, value: AnyPointer) =
+  if value == nil:
+    packNil(p, offset)
+    return
+
+  let self: AnyPointerImpl = value
+  case self.kind:
+  of AnyPointerKind.unpacker:
+    doAssert(false)
+  of AnyPointerKind.obj:
+    self.pack(p, offset)
+
+proc pprint*(selfR: AnyPointer): string =
+  if selfR == nil:
+    return "nil"
+
+  let self: AnyPointerImpl = selfR
+  case self.kind:
+    of AnyPointerKind.unpacker:
+      return "AnyPointer(unpacker)"
+    of AnyPointerKind.obj:
+      return "AnyPointer(native)"

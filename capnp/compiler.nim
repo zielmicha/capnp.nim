@@ -7,6 +7,7 @@ type
     isGroup: Table[uint64, bool]
     toplevel: string
     bottom: string
+    enableRpc: bool
 
 proc hash(x: uint64): Hash {.inline.} =
   result = Hash(x and 0xFFFFFFF)
@@ -20,7 +21,6 @@ proc walkType(self: Generator, id: uint64, prefix: string="") =
     self.typeNames[child.id] = name
     self.walkType(child.id, name & "_")
 
-  # echo("walking ", id, " ", node.kind)
   if node.kind == NodeKind.struct:
     for field in node.fields:
       if field.kind == FieldKind.group:
@@ -31,6 +31,18 @@ proc walkType(self: Generator, id: uint64, prefix: string="") =
           self.typeNames[field.typeId] = name
 
         self.walkType(field.typeId, name & "_")
+  elif node.kind == NodeKind.`interface`:
+    # TODO: superclasses
+    for m in node.methods:
+      let p = prefix & m.name & "_"
+
+      self.typeNames[m.paramStructType] = p & "Params"
+      self.walkType(m.paramStructType, p & "Params_")
+
+      self.typeNames[m.resultStructType] = p & "Result"
+      self.walkType(m.resultStructType, p & "Result_")
+  elif node.kind != NodeKind.file:
+    stderr.writeLine("ignoring ", node.kind, " ", id)
 
 proc addToplevel(self: Generator, s: string) =
   self.toplevel &= s
@@ -179,7 +191,7 @@ proc generateStruct(self: Generator, name: string, node: Node) =
   proc addCoderField(f: Field, prefix: string, condition: string) =
     let fieldName = prefix & f.name
     if f.kind == FieldKind.slot:
-      if f.`type`.kind in {TypeKind.text, TypeKind.data, TypeKind.list, TypeKind.struct, TypeKind.anyPointer}:
+      if f.`type`.kind in {TypeKind.text, TypeKind.data, TypeKind.list, TypeKind.struct, TypeKind.anyPointer, TypeKind.`interface`}:
         let flags = if isTextType(f.`type`): "PointerFlag.text" else: "PointerFlag.none"
         let s = "($1, $2, $3, $4)" % [quoteFieldId(fieldName), $f.offset, flags, condition]
         pointerCoderArgs.add s
@@ -226,6 +238,94 @@ proc generateEnum(self: Generator, name: string, node: Node) =
   s &= "\n"
   self.addToplevel(s)
 
+proc generateInterface(self: Generator, name: string, node: Node) =
+  self.enableRpc = true
+  var s = "  $1* = distinct Interface\L" % name
+  s &= "  $1_CallWrapper* = ref object of CapServerWrapper\L" % name
+  self.addToplevel(s)
+
+  proc makeParams(typ: uint64): string =
+    let typNode = self.nodes[typ]
+    return typNode.fields.map(x => (x.name.quoteId) & ": " & self.type2nim(x.`type`)).toSeq.join("/")
+
+  proc makeResult(typ: uint64): string =
+    let typNode = self.nodes[typ]
+    if typNode.fields.len == 0:
+      return "void"
+    elif typNode.fields.len == 1:
+      return self.type2nim(typNode.fields[0].`type`)
+    else:
+      return self.type2nim(Type(kind: TypeKind.struct, struct_typeId: typ))
+
+  var helpers = "interfaceMethods " & name & ":\L"
+  #helpers &= "  getCapServer(): CapServer"
+  for m in node.methods:
+    helpers &= "  $1($2): Future[$3]\L" % [m.name.quoteId,
+                                   makeParams(m.paramStructType),
+                                   makeResult(m.resultStructType)]
+
+  helpers &= "\Lproc getIntefaceId*(t: typedesc[$1]): uint64 = return $2'u64\L" % [name.quoteId, $node.id]
+
+  # Call method by ID + AnyPointer args on existing interface object
+  helpers &= """
+
+proc createCallWrapper[T: $1](ty: typedesc[T], capServer: CapServer): $1_CallWrapper =
+  return $1_CallWrapper(cap: capServer)
+
+miscCapMethods($1)
+
+proc capCall*[T: $1](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
+  case id:
+""" % name
+
+  for methodId, m in node.methods:
+    helpers &= "    of $1:\L" % [$methodId]
+    helpers &= "      let argObj = args.castAs($1_$2_Params)\L" % [name, m.name]
+    let paramFields = self.nodes[m.paramStructType].fields
+    let retFields = self.nodes[m.resultStructType].fields
+    let args = paramFields.map(x => "argObj." & x.name).toSeq.join(", ")
+    helpers &= "      let retVal = cap.$1($2)\L" % [m.name.quoteId, args]
+    var makeResult = ""
+
+    if retFields.len == 0:
+      helpers &= "      return retVal.then(() => $1_$2_Result())\L" % [name, m.name]
+    elif retFields.len == 1:
+      helpers &= "      return wrapFutureInSinglePointer($1_$2_Result, $3, retVal)\L" % [name, m.name, retFields[0].name]
+    else:
+      let retArgs = retFields.map(x => x.name & ": retVal." & x.name).toSeq.join(", ")
+      helpers &= "      return retVal.asAnyPointerFuture\L" % [name, m.name, retArgs]
+  helpers &= "    else: raise newException(NotImplementedError, \"not implemented\")\L"
+
+  # CallWrapper implementation -
+  for methodId, m in node.methods:
+    let mname = name & "_" & m.name
+
+    helpers &= "\Lproc $1*[T: $2_CallWrapper](self: T, $3): Future[$4] =\L" % [
+      m.name.quoteId,
+      name,
+      makeParams(m.paramStructType),
+      makeResult(m.resultStructType)]
+
+    let arguments = self.nodes[m.paramStructType].fields.map(
+      x => "$1: $1" % [x.name.quoteId]).toSeq
+
+    let callExpr =  "self.cap.call($1'u64, $2, toAnyPointer($3_Params($4))).castAs($3_Result)" % [
+      $(node.id),
+      $(methodId),
+      mname,
+      arguments.join(", ")]
+
+    let retFields = self.nodes[m.resultStructType].fields
+
+    if retFields.len == 0:
+      helpers &= "  return $1.ignoreResultValue\L" % [callExpr]
+    elif retFields.len == 1:
+      helpers &= "  return getFutureField($1, $2)\L" % [callExpr, retFields[0].name]
+    else:
+      helpers &= "  return $1\L" % [callExpr]
+
+  self.bottom &= helpers & "\L"
+
 proc generateType(self: Generator, id: uint64) =
   let name = self.typeNames[id]
   let node = self.nodes[id]
@@ -234,6 +334,8 @@ proc generateType(self: Generator, id: uint64) =
     self.generateStruct(name, node)
   elif node.kind == NodeKind.`enum`:
     self.generateEnum(name, node)
+  elif node.kind == NodeKind.`interface`:
+    self.generateInterface(name, node)
 
 proc generateCode*(req: CodeGeneratorRequest) =
   let self = new(Generator)
@@ -252,6 +354,9 @@ proc generateCode*(req: CodeGeneratorRequest) =
   for id in sorted(self.typeNames.keys):
     self.generateType(id)
 
-  echo "import capnp, capnp/gensupport\ntype\n" & self.toplevel
+  echo "import capnp, capnp/gensupport, collections/iface\n"
+  if self.enableRpc:
+    echo "import reactor, caprpc, caprpc/rpcgensupport"
+  echo "type\n" & self.toplevel
   echo()
   echo self.bottom

@@ -128,7 +128,7 @@ proc packList*[T](p: Packer, offset: int, value: seq[T]) =
 proc packList*(p: Packer, offset: int, value: string) =
   packListImpl(p, offset, value, byte)
 
-proc packStruct*[T](p: Packer, offset: int, value: T) =
+proc packStruct[T](p: Packer, offset: int, value: T) =
   mixin capnpPackStructImpl
 
   let dataOffset = p.buffer.len
@@ -139,13 +139,16 @@ proc packStruct*[T](p: Packer, offset: int, value: T) =
        (info.dataSize.uint64 shl 32) or
        (info.pointerCount.uint64 shl 48))
 
+proc packNil(p: Packer, offset: int) =
+  if offset + 8 <= p.buffer.len:
+    pack(p.buffer, offset, 0.uint64)
+
 proc packPointer*[T](p: Packer, offset: int, value: T) =
-  if value == nil:
-    if offset + 8 <= p.buffer.len:
-      pack(p.buffer, offset, 0.uint64)
+  when value is (string|seq):
+    packList(p, offset, value)
   else:
-    when value is (string|seq):
-      packList(p, offset, value)
+    if value == nil:
+      packNil(p, offset)
     else:
       packStruct(p, offset, value)
 
@@ -162,7 +165,7 @@ proc preprocessText[T](v: seq[T]): seq[T] =
 proc packText*[T](p: Packer, offset: int, value: T) =
   packPointer(p, offset, preprocessText(value))
 
-proc packStruct*[T](value: T): string =
+proc packPointer*[T](value: T): string =
   let packer = Packer(buffer: newZeroString(8))
-  packStruct(packer, 0, value)
+  packPointer(packer, 0, value)
   return packer.buffer

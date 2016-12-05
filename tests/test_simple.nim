@@ -1,5 +1,4 @@
-import capnp
-import examples/persondef, capnp
+import examples/persondef, capnp, collections
 
 let p = new(Person)
 let d = new(Date)
@@ -22,7 +21,8 @@ d.year = 2016
 d.month = 12
 d.day = 5
 
-let packed = packStruct(p)
+let packed = packPointer(p)
+echo packed.encodeHex
 let p1 = newUnpackerFlat(packed).unpackPointer(0, Person)
 assert p.isAwesome == p1.isAwesome
 assert p.name == p1.name

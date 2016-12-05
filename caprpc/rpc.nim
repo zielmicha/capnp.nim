@@ -1,10 +1,11 @@
 ## Implements the core of the RPC mechanism.
-import caprpc/common, caprpc/util, caprpc/rpcschema, tables, collections/weaktable, reactor, capnp, collections/iface, caprpc/util
+import caprpc/common, caprpc/util, caprpc/rpcschema, tables, collections/weaktable, reactor, capnp, collections/iface, caprpc/util, collections/iterate, collections
 
 type
   RpcSystem* = ref object of WeakRefable
     network: VatNetwork
     myBootstrap: CapServer # my bootstrap interface
+    connections: WeakValueTable[VatId, VatConnection]
 
   Export = ref object of WeakRefable
     ## References receiver hosted capability.
@@ -15,83 +16,96 @@ type
   ExportId = uint32
   ImportId = uint32
 
-  RpcConnection = ref object of WeakRefable
-    system: WeakRef[RpcSystem]
+  VatConnection = ref object of WeakRefable
+    system: RpcSystem
     vatConn: Connection
     questions: QuestionTable[QuestionId, Question]
+    imports: WeakValueTable[ImportId, RemoteCap]
+    #exports: QuestionTable[ExportId, Export]
 
   Question = ref object
     id: QuestionId
     returnCallback: (proc(ret: Return): Future[void])
 
-  CapKind = enum
-    selfHosted
-    peerHosted
-    peerPromise
-    exception
+  RemoteCap = ref object of WeakRefable # implements CapServer
+    vatConnection: VatConnection
+    importId: ImportId
+    refCount: int64
 
-  Cap* = ref object
-    ## Represents a capability (either sender or receiver hosted).
-    case kind: CapKind
-    of CapKind.selfHosted:
-      capServer: CapServer
-      # this will be automatically exported during serialization
-    of CapKind.peerHosted:
-      importId: ImportId
-    of CapKind.peerPromise:
-      # currently we only support direct pipelining
-      questionId: QuestionId
-    of CapKind.exception:
-      # error
-      exception: rpcschema.Exception
+proc call(cap: RemoteCap, ifaceId: uint64, methodId: uint64, payload: AnyPointer): Future[AnyPointer]
 
-proc newRpcSystem*(network: VatNetwork, myBootstrap: CapServer=nil): RpcSystem =
+proc newRpcSystem*(network: VatNetwork, myBootstrap: CapServer=nothingImplemented): RpcSystem =
   return RpcSystem(
     network: network,
-    myBootstrap: myBootstrap)
+    myBootstrap: myBootstrap,
+    connections: newWeakValueTable[VatId, VatConnection]())
 
-proc send(self: RpcConnection, msg: Message): Future[void] =
-  echo("send ", msg.repr)
+proc send(self: VatConnection, msg: Message): Future[void] =
+  echo("send ", msg.pprint)
   return self.vatConn.output.provide(msg)
 
-proc finishQuestion(self: RpcConnection, questionId: QuestionId): Future[void] {.async.} =
+proc finishQuestion(self: VatConnection, questionId: QuestionId): Future[void] {.async.} =
   await self.send(Message(
     kind: MessageKind.finish,
     finish: Finish(releaseResultCaps: false, questionId: questionId)
   ))
-  del self.questions, questionId
+  self.questions.del(questionId)
 
-proc newQuestion(self: RpcConnection): Question =
+proc newQuestion(self: VatConnection): Question =
   let q = Question()
   q.id = self.questions.putNext(q)
   return q
 
-proc asExportId(payload: Payload): ExportId =
-  discard
+proc capFromDescriptor(self: VatConnection, descriptor: CapDescriptor): CapServer =
+  case descriptor.kind:
+  of CapDescriptorKind.none:
+    return nothingImplemented
+  of CapDescriptorKind.senderHosted:
+    let id = descriptor.senderHosted
+    var cap: RemoteCap
+    if id in self.imports:
+      cap = self.imports[id]
+    else:
+      cap = self.imports.addKey(id)
+      cap.vatConnection = self
+      cap.importId = id
 
-proc getCapForQuestion(self: RpcConnection, question: Question): Cap =
-  let cap = Cap(
-    kind: CapKind.peerPromise,
-    questionId: question.id
-  )
+    cap.refCount += 1
+    return cap.asCapServer
+  of CapDescriptorKind.senderPromise:
+    raise newException(system.Exception, "promise not implemented")
+  of CapDescriptorKind.receiverHosted:
+    return nothingImplemented
+  of CapDescriptorKind.receiverAnswer:
+    return nothingImplemented
+  of CapDescriptorKind.thirdPartyHosted:
+    return nothingImplemented
+
+proc unpackPayload(self: VatConnection, payload: Payload): AnyPointer =
+  let caps = payload.capTable.map(x => self.capFromDescriptor(x)).toSeq
+  payload.content.setCapGetter(proc(id: int): CapServer = caps[id])
+  return payload.content
+
+proc getFutureForQuestion(self: VatConnection, question: Question): Future[AnyPointer] =
+  let completer = newCompleter[AnyPointer]()
 
   proc cb(ret: Return): Future[void] {.async.} =
-    reset(cap[])
     case ret.kind:
       of ReturnKind.results:
-        cap.kind = CapKind.peerHosted
-        cap.importId = ret.results.asExportId
+        completer.complete(self.unpackPayload(ret.results))
       of ReturnKind.exception:
-        cap.kind = CapKind.exception
-        cap.exception = ret.exception
+        completer.completeError((ref CaprpcException)(
+          exceptionMsg: ret.exception, msg: "server: " & nilToEmpty(ret.exception.reason)))
       else:
         stderr.writeLine("unsupported return: ", ret.kind)
 
+    await self.finishQuestion(ret.answerId)
+
   question.returnCallback = cb
 
-  return cap
+  return completer.getFuture
 
-proc processMessage(self: RpcConnection, msg: Message) {.async.} =
+proc processMessage(self: VatConnection, msg: Message) {.async.} =
   case msg.kind:
     of MessageKind.unimplemented:
       stderr.writeLine("peer sent 'unimplemented' message")
@@ -107,7 +121,6 @@ proc processMessage(self: RpcConnection, msg: Message) {.async.} =
         stderr.writeLine("peer sent return to invalid question")
       else:
         await self.questions[questionId].returnCallback(msg.`return`)
-        await self.finishQuestion(questionId)
     of MessageKind.finish:
       discard
     of MessageKind.resolve:
@@ -129,29 +142,61 @@ proc processMessage(self: RpcConnection, msg: Message) {.async.} =
     of MessageKind.disembargo:
       discard
 
-proc start(self: RpcConnection) {.async.} =
+proc start(self: VatConnection) {.async.} =
   asyncFor msg in self.vatConn.input:
-    echo msg.repr
+    echo("recv ", msg.pprint)
     await self.processMessage(msg)
 
-proc getConnection(self: RpcSystem, vatId: AnyPointer): RpcConnection =
-  # TODO: cache connections
-  let rpcConn = RpcConnection(system: self.weakRef, vatConn: self.network.connect(vatId))
-  init(rpcConn.questions)
+proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
+  if vatId in self.connections:
+    return self.connections[vatId]
+
+  let rpcConn = self.connections.addKey(vatId)
+  rpcConn.system = self
+  rpcConn.vatConn = self.network.connect(vatId)
+  rpcConn.questions = initQuestionTable[QuestionId, Question]()
+  rpcConn.imports = newWeakValueTable[ImportId, RemoteCap]()
+  echo "creating new connection"
+
   rpcConn.start.ignore() # TODO: close connection on error
   return rpcConn
 
-proc bootstrap*(self: RpcSystem, vatId: AnyPointer): Cap =
+proc bootstrap*(self: RpcSystem, vatId: VatId): Future[AnyPointer] {.async.} =
   let conn = self.getConnection(vatId)
   let question = conn.newQuestion()
 
-  let fut = conn.send(Message(
+  # queue the message
+  await conn.send(Message(
     kind: MessageKind.bootstrap,
     bootstrap: Bootstrap(
       questionId: question.id,
       deprecatedObjectId: nil
     )
   ))
-  fut.ignore # FIXME
 
-  return conn.getCapForQuestion(question)
+  return (await conn.getFutureForQuestion(question))
+
+proc makePayload(self: VatConnection, payload: AnyPointer): Payload =
+  return Payload(content: payload) # TODO: caps
+
+# RemoteCap impl
+
+async:
+ proc call(cap: RemoteCap, ifaceId: uint64, methodId: uint64, payload: AnyPointer): Future[AnyPointer] =
+  let conn = cap.vatConnection
+  let question = conn.newQuestion()
+
+  await conn.send(Message(
+    kind: MessageKind.call,
+    call: Call(
+      questionId: question.id,
+      interfaceId: ifaceId,
+      target: MessageTarget(kind: MessageTargetKind.importedCap,
+                            importedCap: cap.importId),
+      methodId: methodId.uint16,
+      params: conn.makePayload(payload),
+      sendResultsTo: Call_sendResultsTo(kind: Call_sendResultsToKind.caller),
+    )
+  ))
+
+  return (await conn.getFutureForQuestion(question))

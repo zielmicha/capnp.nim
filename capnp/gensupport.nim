@@ -60,7 +60,7 @@ template capnpPreparePackFinish*() =
     bufferM.insertAt(pointerOffset, newZeroString(pointers.len * 8))
 
 template capnpPackPointer*(name, offset, flag, condition): untyped =
-  if bufferM != nil and kindMatches(value, condition):
+  if bufferM != nil and kindMatches(value, condition) and name != nil:
     when flag == PointerFlag.text:
       packText(p, pointerOffset + offset * 8, name)
     else:
@@ -79,7 +79,7 @@ proc newComplexDotExpr(a: NimNode, b: NimNode): NimNode {.compileTime.} =
   return newDotExpr(a, b)
 
 proc makeUnpacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools: NimNode): NimNode {.compiletime.} =
-  # capnpUnpackStructImpl is generic to delay instantiation
+  # capnpUnpackStructImpl is generic to delay instantation
   result = parseStmt("""proc capnpUnpackStructImpl*[T: XXX](self: Unpacker, offset: int, dataLength: int, pointerCount: int, typ: typedesc[T]): T =
   new(result)""")
 
@@ -126,7 +126,7 @@ proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools: N
 
   for p in bools:
     let offset = p[1]
-    sizesList.add(newLit((offset.intVal + 7) div 8))
+    sizesList.add(newLit((offset.intVal + 8) div 8))
 
   for p in scalars:
     let name = p[0]

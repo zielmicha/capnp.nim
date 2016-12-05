@@ -1,4 +1,5 @@
-import capnp, capnp/gensupport
+import capnp, capnp/gensupport, collections/iface
+
 type
   Person_PhoneNumber* = ref object
     number*: string
@@ -20,6 +21,9 @@ type
     year*: int16
     month*: uint8
     day*: uint8
+
+  PersonContainer* = ref object
+    person*: AnyPointer
 
 
 
@@ -45,5 +49,9 @@ makeStructCoders(Date, [
   (month, 2, 0, true),
   (day, 3, 0, true)
   ], [], [])
+
+makeStructCoders(PersonContainer, [], [
+  (person, 0, PointerFlag.none, true)
+  ], [])
 
 

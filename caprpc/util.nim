@@ -1,15 +1,19 @@
-import tables
+import tables, collections/pprint
 
 type
-  QuestionTable*[K: uint32, V] = object
+  QuestionTable*[K: uint32, V] = object {.requiresinit.}
     t: Table[K, V]
     free: seq[K]
     firstFree: K
 
+proc initQuestionTable*[K, V](): QuestionTable[K, V] =
+  result = QuestionTable[K, V]()
+  result.t = initTable[K, V]()
+  result.free = @[]
+  result.firstFree = 0
+
 proc init*[K, V](self: var QuestionTable[K, V]) =
-  self.t = initTable[K, V]()
-  self.free = @[]
-  self.firstFree = 0
+  self = initQuestionTable[K, V]()
 
 proc contains*[K, V](self: QuestionTable[K, V], k: K): bool =
   return k in self.t
@@ -33,3 +37,6 @@ proc del*[K, V](self: var QuestionTable[K, V], k: K) =
   else:
     self.free.add(k)
   # TODO: remove items from free when (firstFree - 1) in free
+
+proc pprint*[K, V](self: QuestionTable[K, V]): string =
+  return "QuestionTable " & pprint(self.t)
