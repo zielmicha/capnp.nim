@@ -1,3 +1,4 @@
+# included from capnp.nim
 when not compiles(isInCapnp): {.error: "do not import this file directly".}
 import collections
 
@@ -268,7 +269,7 @@ proc parseStruct(self: Unpacker, offset: int, parseOffset=true): tuple[offset: i
     result.offset *= 8
     result.offset += offset + 8
 
-    if result.offset < 0 or result.offset >= self.buffer.len or result.offset + result.dataLength > self.buffer.len or result.offset + result.dataLength + result.pointerCount * 8 > self.buffer.len:
+    if result.offset < 0 or result.offset > self.buffer.len or result.offset + result.dataLength > self.buffer.len or result.offset + result.dataLength + result.pointerCount * 8 > self.buffer.len:
       raise newException(CapnpFormatError, "index error")
 
 proc unpackStruct[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
@@ -279,7 +280,7 @@ proc unpackStruct[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   mixin capnpUnpackStructImpl
   let s = parseStruct(self, offset)
   deferRestoreStackLimit
-  self.decreaseLimit(s.pointerCount * 8 + s.pointerCount)
+  self.decreaseLimit(s.pointerCount * 8 + s.dataLength)
   return capnpUnpackStructImpl(self, s.offset, s.dataLength, s.pointerCount, typ)
 
 proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =

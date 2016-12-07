@@ -1,3 +1,4 @@
+# included from capnp.nim
 when not compiles(isInCapnp): {.error: "do not import this file directly".}
 
 type

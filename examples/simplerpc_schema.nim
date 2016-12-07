@@ -24,15 +24,13 @@ type
 
 
 interfaceMethods SimpleRpc:
+  toCapServer(): CapServer
   identity(a: int64): Future[int64]
   dup(a: int64): Future[SimpleRpc_dup_Result]
 
 proc getIntefaceId*(t: typedesc[SimpleRpc]): uint64 = return 9832355072165603449'u64
 
-proc createCallWrapper[T: SimpleRpc](ty: typedesc[T], capServer: CapServer): SimpleRpc_CallWrapper =
-  return SimpleRpc_CallWrapper(cap: capServer)
-
-miscCapMethods(SimpleRpc)
+miscCapMethods(SimpleRpc, SimpleRpc_CallWrapper)
 
 proc capCall*[T: SimpleRpc](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
   case id:

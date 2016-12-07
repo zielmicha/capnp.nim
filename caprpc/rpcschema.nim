@@ -1,4 +1,5 @@
-import capnp, capnp/gensupport
+import capnp, capnp/gensupport, collections/iface
+
 type
   Call* = ref object
     questionId*: uint32

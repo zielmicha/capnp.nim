@@ -1,4 +1,5 @@
-import capnp, capnp/gensupport
+import capnp, capnp/gensupport, collections/iface
+
 type
   RecipientId* = ref object
 

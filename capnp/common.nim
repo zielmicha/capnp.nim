@@ -1,3 +1,4 @@
+# included from capnp.nim
 type
   AnyPointer* = distinct RootRef
 

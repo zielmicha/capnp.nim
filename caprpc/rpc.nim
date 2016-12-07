@@ -7,10 +7,6 @@ type
     myBootstrap: CapServer # my bootstrap interface
     connections: WeakValueTable[VatId, VatConnection]
 
-  Export = ref object of WeakRefable
-    ## References receiver hosted capability.
-    exportId: ExportId
-
   QuestionId = uint32
   AnswerId = uint32
   ExportId = uint32
@@ -20,8 +16,13 @@ type
     system: RpcSystem
     vatConn: Connection
     questions: QuestionTable[QuestionId, Question]
+    exports: QuestionTable[ExportId, Export]
     imports: WeakValueTable[ImportId, RemoteCap]
     #exports: QuestionTable[ExportId, Export]
+
+  Export = ref object
+    refCount: int64
+    cap: CapServer
 
   Question = ref object
     id: QuestionId
@@ -75,7 +76,10 @@ proc capFromDescriptor(self: VatConnection, descriptor: CapDescriptor): CapServe
   of CapDescriptorKind.senderPromise:
     raise newException(system.Exception, "promise not implemented")
   of CapDescriptorKind.receiverHosted:
-    return nothingImplemented
+    let id = descriptor.receiverHosted
+    if id notin self.exports:
+      raise newException(system.Exception, "bad export ID")
+    return self.exports[id].cap
   of CapDescriptorKind.receiverAnswer:
     return nothingImplemented
   of CapDescriptorKind.thirdPartyHosted:
@@ -177,7 +181,13 @@ proc bootstrap*(self: RpcSystem, vatId: VatId): Future[AnyPointer] {.async.} =
   return (await conn.getFutureForQuestion(question))
 
 proc makePayload(self: VatConnection, payload: AnyPointer): Payload =
-  return Payload(content: payload) # TODO: caps
+  var capTable: seq[CapDescriptor] = @[]
+
+  proc capToIndex(cap: CapServer): int =
+    return 0
+
+  let newPayload = payload.packNow(capToIndex)
+  return Payload(content: newPayload, capTable: capTable) # TODO: caps
 
 # RemoteCap impl
 

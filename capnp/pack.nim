@@ -1,8 +1,10 @@
+# included from capnp.nim
 when not compiles(isInCapnp): {.error: "do not import this file directly".}
 import collections
 
 type Packer* = ref object
   buffer*: string
+  capToIndex*: (proc(cap: CapServer): int)
 
 proc packPointer*[T](p: Packer, offset: int, value: T)
 
@@ -76,7 +78,15 @@ proc packPointerList[R](p: Packer, offset: int, value: seq[R], typ: typedesc[R])
        (itemSizeTag.uint64 shl 32) or
        (value.len.uint64 shl 35))
 
+proc packNil(p: Packer, offset: int) =
+  if offset + 8 <= p.buffer.len:
+    pack(p.buffer, offset, 0.uint64)
+
 proc packCompositeList[R](p: Packer, offset: int, value: seq[R], typ: typedesc[R]) =
+  if value.len == 0:
+    packNil(p, offset)
+    return
+
   mixin capnpPackStructImpl
 
   var dataSize = 0
@@ -139,15 +149,18 @@ proc packStruct[T](p: Packer, offset: int, value: T) =
        (info.dataSize.uint64 shl 32) or
        (info.pointerCount.uint64 shl 48))
 
-proc packNil(p: Packer, offset: int) =
-  if offset + 8 <= p.buffer.len:
-    pack(p.buffer, offset, 0.uint64)
+proc packCap(p: Packer, offset: int, value: CapServer) =
+  let id = p.capToIndex(value)
+  pack(p.buffer, offset,
+       3.uint64 or (id.uint64 shl 32))
 
 proc packPointer*[T](p: Packer, offset: int, value: T) =
   when value is (string|seq):
     packList(p, offset, value)
+  elif compiles(toCapServer(value)):
+    packCap(p, offset, toCapServer(value))
   else:
-    if value == nil:
+    if value.isNil:
       packNil(p, offset)
     else:
       packStruct(p, offset, value)
@@ -165,7 +178,15 @@ proc preprocessText[T](v: seq[T]): seq[T] =
 proc packText*[T](p: Packer, offset: int, value: T) =
   packPointer(p, offset, preprocessText(value))
 
+proc newPacker*(): Packer =
+  let capToIndex = proc(cap: CapServer): int =
+    raise newException(Exception, "this packer doesn't support capabilities")
+
+  return Packer(
+    buffer: newZeroString(8),
+    capToIndex: capToIndex)
+
 proc packPointer*[T](value: T): string =
-  let packer = Packer(buffer: newZeroString(8))
+  let packer = newPacker()
   packPointer(packer, 0, value)
   return packer.buffer

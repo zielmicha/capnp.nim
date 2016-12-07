@@ -246,7 +246,7 @@ proc generateInterface(self: Generator, name: string, node: Node) =
 
   proc makeParams(typ: uint64): string =
     let typNode = self.nodes[typ]
-    return typNode.fields.map(x => (x.name.quoteId) & ": " & self.type2nim(x.`type`)).toSeq.join("/")
+    return typNode.fields.map(x => (x.name.quoteId) & ": " & self.type2nim(x.`type`)).toSeq.join(", ")
 
   proc makeResult(typ: uint64): string =
     let typNode = self.nodes[typ]
@@ -258,7 +258,7 @@ proc generateInterface(self: Generator, name: string, node: Node) =
       return self.type2nim(Type(kind: TypeKind.struct, struct_typeId: typ))
 
   var helpers = "interfaceMethods " & name & ":\L"
-  #helpers &= "  getCapServer(): CapServer"
+  helpers &= "  toCapServer(): CapServer\L"
   for m in node.methods:
     helpers &= "  $1($2): Future[$3]\L" % [m.name.quoteId,
                                    makeParams(m.paramStructType),
@@ -269,10 +269,7 @@ proc generateInterface(self: Generator, name: string, node: Node) =
   # Call method by ID + AnyPointer args on existing interface object
   helpers &= """
 
-proc createCallWrapper[T: $1](ty: typedesc[T], capServer: CapServer): $1_CallWrapper =
-  return $1_CallWrapper(cap: capServer)
-
-miscCapMethods($1)
+miscCapMethods($1, $1_CallWrapper)
 
 proc capCall*[T: $1](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
   case id:
@@ -290,7 +287,7 @@ proc capCall*[T: $1](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
     if retFields.len == 0:
       helpers &= "      return retVal.then(() => $1_$2_Result())\L" % [name, m.name]
     elif retFields.len == 1:
-      helpers &= "      return wrapFutureInSinglePointer($1_$2_Result, $3, retVal)\L" % [name, m.name, retFields[0].name]
+      helpers &= "      return wrapFutureInSinglePointer($1_$2_Result, $3, retVal)\L" % [name, m.name, retFields[0].name.quoteId]
     else:
       let retArgs = retFields.map(x => x.name & ": retVal." & x.name).toSeq.join(", ")
       helpers &= "      return retVal.asAnyPointerFuture\L" % [name, m.name, retArgs]
@@ -320,7 +317,7 @@ proc capCall*[T: $1](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
     if retFields.len == 0:
       helpers &= "  return $1.ignoreResultValue\L" % [callExpr]
     elif retFields.len == 1:
-      helpers &= "  return getFutureField($1, $2)\L" % [callExpr, retFields[0].name]
+      helpers &= "  return getFutureField($1, $2)\L" % [callExpr, retFields[0].name.quoteId]
     else:
       helpers &= "  return $1\L" % [callExpr]
 

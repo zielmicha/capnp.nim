@@ -1,4 +1,4 @@
-import macros, strutils, capnp
+import macros, strutils, capnp, collections
 
 type PointerFlag* {.pure.} = enum
   none, text
@@ -34,7 +34,7 @@ template capnpPackBoolMember*(name, fieldOffset, fieldDefault, condition) =
 
 template capnpUnpackPointerMember*(name, pointerIndex, flag, condition) =
   if kindMatches(result, condition):
-    name = nil
+    name = defaultVal(type(name))
     if pointerIndex < pointerCount:
       let realOffset = offset + pointerIndex * 8 + dataLength
       if realOffset + 8 <= buffer(self).len:
@@ -51,7 +51,7 @@ template capnpPreparePack*() =
 
 template capnpPreparePackPointer*(name, offset, condition) =
   if kindMatches(value, condition):
-    if name != nil and pointers.len <= offset:
+    if not isNil(name) and pointers.len <= offset:
       pointers.setLen offset + 1
 
 template capnpPreparePackFinish*() =
@@ -60,7 +60,7 @@ template capnpPreparePackFinish*() =
     bufferM.insertAt(pointerOffset, newZeroString(pointers.len * 8))
 
 template capnpPackPointer*(name, offset, flag, condition): untyped =
-  if bufferM != nil and kindMatches(value, condition) and name != nil:
+  if bufferM != nil and kindMatches(value, condition) and not isNil(name):
     when flag == PointerFlag.text:
       packText(p, pointerOffset + offset * 8, name)
     else:

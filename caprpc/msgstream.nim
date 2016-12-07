@@ -38,7 +38,6 @@ proc pipeMsg[T](stream: Stream[T], provider: ByteProvider) {.async.} =
     let lengthInWords = len(serialized) div 8
     assert len(serialized) mod 8 == 0
     let data = capnp.pack(0.uint32, littleEndian) & capnp.pack(lengthInWords.uint32, littleEndian) & serialized
-    echo "send ", data.encodeHex
     await provider.write(data)
 
 proc wrapByteProvider*[T](byteprovider: ByteProvider, t: typedesc[T]): Provider[T] =
