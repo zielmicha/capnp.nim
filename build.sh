@@ -55,8 +55,8 @@ get_dep() {
 
 echo "path: \".\"" > nim.cfg
 
-get_dep collections https://github.com/zielmicha/collections.nim 001b4acb54d08efec9aee69d5b8ec54a58bff72a ''
-get_dep reactor https://github.com/zielmicha/reactor.nim 99944d035adae1cb3728298d15486d14a09e51fc ''
+get_dep collections https://github.com/zielmicha/collections.nim 5e4bb228f2d0d3b7be3e1f64163c55a2b012a84e ''
+get_dep reactor https://github.com/zielmicha/reactor.nim c7b4f509d576e6a7629ba74a7eee2dcdad1f7979 ''
 
 echo 'debugger: "native"
 
@@ -72,8 +72,8 @@ hint[Processing]: "off"
   clang.options.always = "-w -fno-strict-overflow"
   clang.cpp.options.always = "-w -fno-strict-overflow"
 
-  passC:"-ffunction-sections -fdata-sections -flto"
-  passL:"-Wl,--gc-sections -flto"
+  passC:"-ffunction-sections -fdata-sections -flto -fPIE -fstack-protector-strong -D_FORTIFY_SOURCE=2"
+  passL:"-Wl,--gc-sections -flto -fPIE"
 
   obj_checks: on
   field_checks: on

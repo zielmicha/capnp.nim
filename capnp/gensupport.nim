@@ -1,3 +1,4 @@
+# included from capnp/gensupport.nim
 import macros, strutils, capnp, collections
 
 type PointerFlag* {.pure.} = enum

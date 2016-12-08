@@ -18,7 +18,6 @@ type
     questions: QuestionTable[QuestionId, Question]
     exports: QuestionTable[ExportId, Export]
     imports: WeakValueTable[ImportId, RemoteCap]
-    #exports: QuestionTable[ExportId, Export]
 
   Export = ref object
     refCount: int64
@@ -34,6 +33,7 @@ type
     refCount: int64
 
 proc call(cap: RemoteCap, ifaceId: uint64, methodId: uint64, payload: AnyPointer): Future[AnyPointer]
+proc makePayload(self: VatConnection, payload: AnyPointer): Payload
 
 proc newRpcSystem*(network: VatNetwork, myBootstrap: CapServer=nothingImplemented): RpcSystem =
   return RpcSystem(
@@ -42,7 +42,10 @@ proc newRpcSystem*(network: VatNetwork, myBootstrap: CapServer=nothingImplemente
     connections: newWeakValueTable[VatId, VatConnection]())
 
 proc send(self: VatConnection, msg: Message): Future[void] =
-  echo("send ", msg.pprint)
+  when defined(traceMessages):
+    when defined(showSendTrace):
+      echo(getStackTrace())
+    echo("\x1B[91msend\x1B[0m ", msg.pprint)
   return self.vatConn.output.provide(msg)
 
 proc finishQuestion(self: VatConnection, questionId: QuestionId): Future[void] {.async.} =
@@ -57,22 +60,24 @@ proc newQuestion(self: VatConnection): Question =
   q.id = self.questions.putNext(q)
   return q
 
+proc getImportedCap(self: VatConnection, id: ImportId): CapServer =
+  var cap: RemoteCap
+  if id in self.imports:
+    cap = self.imports[id]
+  else:
+    cap = self.imports.addKey(id)
+    cap.vatConnection = self
+    cap.importId = id
+
+  cap.refCount += 1
+  return cap.asCapServer
+
 proc capFromDescriptor(self: VatConnection, descriptor: CapDescriptor): CapServer =
   case descriptor.kind:
   of CapDescriptorKind.none:
     return nothingImplemented
   of CapDescriptorKind.senderHosted:
-    let id = descriptor.senderHosted
-    var cap: RemoteCap
-    if id in self.imports:
-      cap = self.imports[id]
-    else:
-      cap = self.imports.addKey(id)
-      cap.vatConnection = self
-      cap.importId = id
-
-    cap.refCount += 1
-    return cap.asCapServer
+    return self.getImportedCap(descriptor.senderHosted)
   of CapDescriptorKind.senderPromise:
     raise newException(system.Exception, "promise not implemented")
   of CapDescriptorKind.receiverHosted:
@@ -109,14 +114,41 @@ proc getFutureForQuestion(self: VatConnection, question: Question): Future[AnyPo
 
   return completer.getFuture
 
+proc getTargetCap(self: VatConnection, target: MessageTarget): CapServer =
+  case target.kind:
+  of MessageTargetKind.importedCap:
+    let id = target.importedCap
+    if id notin self.exports:
+      raise newException(system.Exception, "bad export ID")
+    return self.exports[id].cap
+  of MessageTargetKind.promisedAnswer:
+    doAssert(false)
+
+proc respondToCall(self: VatConnection, msg: Message, value: Result[AnyPointer]) {.async.} =
+  var ret: Return
+
+  if value.isSuccess:
+    ret = Return(kind: ReturnKind.results, results: self.makePayload(value.get))
+  else:
+    ret = Return(kind: ReturnKind.exception, exception: rpcschema.Exception(reason: $value))
+
+  await self.send(Message(kind: MessageKind.`return`, `return`: ret))
+
 proc processMessage(self: VatConnection, msg: Message) {.async.} =
   case msg.kind:
     of MessageKind.unimplemented:
       stderr.writeLine("peer sent 'unimplemented' message")
     of MessageKind.abort:
       discard
+
     of MessageKind.call:
-      discard
+      let target = self.getTargetCap(msg.call.target)
+      target.call(msg.call.interfaceId, msg.call.methodId, self.unpackPayload(msg.call.params)).onSuccessOrError(
+        proc(ret: Result[AnyPointer]) =
+          # TODO: close connection on failure
+          self.respondToCall(msg, ret).ignore
+      )
+
     of MessageKind.`return`:
       let questionId = msg.`return`.answerId
       let releaseParamCaps = msg.`return`.releaseParamCaps
@@ -125,6 +157,7 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
         stderr.writeLine("peer sent return to invalid question")
       else:
         await self.questions[questionId].returnCallback(msg.`return`)
+
     of MessageKind.finish:
       discard
     of MessageKind.resolve:
@@ -148,7 +181,8 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
 
 proc start(self: VatConnection) {.async.} =
   asyncFor msg in self.vatConn.input:
-    echo("recv ", msg.pprint)
+    when defined(traceMessages):
+      echo("\x1B[92mrecv\x1B[0m ", msg.pprint)
     await self.processMessage(msg)
 
 proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
@@ -160,6 +194,7 @@ proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
   rpcConn.vatConn = self.network.connect(vatId)
   rpcConn.questions = initQuestionTable[QuestionId, Question]()
   rpcConn.imports = newWeakValueTable[ImportId, RemoteCap]()
+  rpcConn.exports = initQuestionTable[ExportId, Export]()
   echo "creating new connection"
 
   rpcConn.start.ignore() # TODO: close connection on error
@@ -180,11 +215,23 @@ proc bootstrap*(self: RpcSystem, vatId: VatId): Future[AnyPointer] {.async.} =
 
   return (await conn.getFutureForQuestion(question))
 
+proc exportCap(self: VatConnection, cap: CapServer): CapDescriptor =
+  # TODO: no need to always export
+  if cap.getImpl of RemoteCap:
+    let remoteCap = cap.getImpl.RemoteCap
+    if remoteCap.vatConnection == self:
+      # TODO: refcount?
+      return CapDescriptor(kind: CapDescriptorKind.receiverHosted, receiverHosted: remoteCap.importId)
+
+  let exportId = self.exports.putNext(Export(refCount: 1, cap: cap))
+  return CapDescriptor(kind: CapDescriptorKind.senderHosted, senderHosted: exportId)
+
 proc makePayload(self: VatConnection, payload: AnyPointer): Payload =
   var capTable: seq[CapDescriptor] = @[]
 
   proc capToIndex(cap: CapServer): int =
-    return 0
+    capTable.add(self.exportCap(cap))
+    return capTable.len - 1
 
   let newPayload = payload.packNow(capToIndex)
   return Payload(content: newPayload, capTable: capTable) # TODO: caps

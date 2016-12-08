@@ -36,3 +36,4 @@ assert p.isAwesome == p1.isAwesome
 assert p.name == p1.name
 assert p.phones.len == p1.phones.len
 assert p.notes == p1.notes
+

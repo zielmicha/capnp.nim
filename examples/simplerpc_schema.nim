@@ -33,7 +33,7 @@ proc getIntefaceId*(t: typedesc[SimpleRpc]): uint64 = return 9832355072165603449
 miscCapMethods(SimpleRpc, SimpleRpc_CallWrapper)
 
 proc capCall*[T: SimpleRpc](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
-  case id:
+  case int(id):
     of 0:
       let argObj = args.castAs(SimpleRpc_identity_Params)
       let retVal = cap.identity(argObj.a)

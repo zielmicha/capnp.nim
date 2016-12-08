@@ -272,7 +272,7 @@ proc generateInterface(self: Generator, name: string, node: Node) =
 miscCapMethods($1, $1_CallWrapper)
 
 proc capCall*[T: $1](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
-  case id:
+  case int(id):
 """ % name
 
   for methodId, m in node.methods:

@@ -84,7 +84,7 @@ proc getIntefaceId*(t: typedesc[Calculator]): uint64 = return 109235376020902246
 miscCapMethods(Calculator, Calculator_CallWrapper)
 
 proc capCall*[T: Calculator](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
-  case id:
+  case int(id):
     of 0:
       let argObj = args.castAs(Calculator_evaluate_Params)
       let retVal = cap.evaluate(argObj.expression)
@@ -129,7 +129,7 @@ proc getIntefaceId*(t: typedesc[Calculator_Value]): uint64 = return 141161429322
 miscCapMethods(Calculator_Value, Calculator_Value_CallWrapper)
 
 proc capCall*[T: Calculator_Value](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
-  case id:
+  case int(id):
     of 0:
       let argObj = args.castAs(Calculator_Value_read_Params)
       let retVal = cap.read()
@@ -168,7 +168,7 @@ proc getIntefaceId*(t: typedesc[Calculator_Function]): uint64 = return 171430160
 miscCapMethods(Calculator_Function, Calculator_Function_CallWrapper)
 
 proc capCall*[T: Calculator_Function](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
-  case id:
+  case int(id):
     of 0:
       let argObj = args.castAs(Calculator_Function_call_Params)
       let retVal = cap.call(argObj.params)

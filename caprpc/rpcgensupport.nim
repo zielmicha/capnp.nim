@@ -2,7 +2,7 @@ import reactor/async
 
 template wrapFutureInSinglePointer*(typ, fieldName, value): typed =
   # value: Future[T], return: Future[typ]
-  value.then(xxx => typ(fieldName: xxx))
+  value.then(xxx => typ(fieldName: xxx)).toAnyPointerFuture
 
 template getFutureField*(value, fieldName): typed =
   value.then(xxx => xxx.fieldName)

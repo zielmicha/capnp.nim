@@ -151,7 +151,7 @@ proc copyList(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
   else: doAssert(false)
 
   let relTargetBodyOffset = targetBodyOffset - targetOffset - 8
-  pack(dst.buffer, offset,
+  pack(dst.buffer, targetOffset,
        1.uint64 or
        ((relTargetBodyOffset div 8).uint64 shl 2) or
        (extractBits(pointer, 32, bits=32).uint64 shl 32))
@@ -172,7 +172,7 @@ proc copyPointer*(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
     doAssert(false) # inter-segment
   elif kind == 3:
     # other pointer
-    discard
+    pack(dst.buffer, targetOffset, unpack(src.buffer, offset, uint64))
 
 proc packNow*(p: AnyPointer, capToIndex: (proc(cap: CapServer): int)): AnyPointer =
   let packer = newPacker()

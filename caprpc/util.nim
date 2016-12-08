@@ -1,7 +1,7 @@
 import tables, collections/pprint
 
 type
-  QuestionTable*[K: uint32, V] = object {.requiresinit.}
+  QuestionTable*[K: uint32, V] = object
     t: Table[K, V]
     free: seq[K]
     firstFree: K
