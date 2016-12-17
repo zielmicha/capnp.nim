@@ -4,6 +4,7 @@ type
   AnyPointerKind {.pure.} = enum
     unpacker
     obj
+    cap
 
   AnyPointerImpl* = ref object of RootObj
     # AnyPointer can be created in two ways: either by unpacking Capnp object or by wrapping a Nim one.
@@ -14,8 +15,11 @@ type
       offset: int
     of AnyPointerKind.obj:
       typeIndex: int
+      getPointerField: proc(index: int): AnyPointer
       pack: proc(p: Packer, offset: int)
       unwrap: proc(dest: pointer)
+    of AnyPointerKind.cap:
+      capServer: CapServer
 
 forwardRefImpl(AnyPointer, AnyPointerImpl)
 
@@ -28,21 +32,57 @@ proc castAs*[T](selfR: AnyPointer, ty: typedesc[T]): T =
     of AnyPointerKind.obj:
       if getTypeIndex(T) != self.typeIndex:
         raise newException(Exception, "trying to cast $1 to $2 ($3)" % [$self.typeIndex, $getTypeIndex(T), name(T)])
+
       self.unwrap(addr result)
+    of AnyPointerKind.cap:
+      when T is CapServer:
+        return self.capServer
+      elif T is SomeInterface:
+        return T.createFromCap(self.capServer)
+      else:
+        raise newException(Exception, "trying to cast capability to $1" % [name(T)])
 
 proc toAnyPointer*[T](t: T): AnyPointer =
-  let self = new(AnyPointerImpl)
-  self.kind = AnyPointerKind.obj
-  self.typeIndex = getTypeIndex(T)
-  self.unwrap = proc(p: pointer) = (cast[ptr T](p))[] = t
-  self.pack = proc(p: Packer, offset: int) =
-    packPointer(p, offset, t)
-  return self
+  when T is CapServer:
+    let self = new(AnyPointerImpl)
+    self.kind = AnyPointerKind.cap
+    self.capServer = t
+    return self
+  elif T is SomeInterface:
+    return toAnyPointer(t.toCapServer)
+  else:
+    let self = new(AnyPointerImpl)
+    self.kind = AnyPointerKind.obj
+    self.typeIndex = getTypeIndex(T)
+    self.unwrap = proc(p: pointer) = (cast[ptr T](p))[] = t
+    self.pack = proc(p: Packer, offset: int) =
+      packPointer(p, offset, t)
+
+    self.getPointerField = proc(index: int): AnyPointer =
+      mixin getPointerField
+      when not (T is SomeInt or T is enum or T is string or T is seq or T is SomeInterface):
+        return getPointerField(t, index)
+      else:
+        raise newException(Exception, "getPointerField not supported for " & name(T))
+    return self
+
+proc getPointerField*(p: AnyPointer, index: int): AnyPointer =
+  if p == nil:
+    raise newException(Exception, "getPointerField on nil")
+
+  let self: AnyPointerImpl = p
+
+  case self.kind:
+  of AnyPointerKind.unpacker:
+    raise newException(Exception, "unpacker not supported yet") # TODO
+  of AnyPointerKind.obj:
+    return (self.getPointerField)(index)
+  of AnyPointerKind.cap:
+    raise newException(Exception, "cap doesn't have fields")
 
 proc setCapGetter*(p: AnyPointer, r: (proc(id: int): CapServer)) =
   # a bit hacky, assumes one interface getter per unpacker
   AnyPointerImpl(p).unpacker.getCap = r
-
 
 proc unpackPointer*(self: Unpacker, offset: int, typ: typedesc[AnyPointer]): AnyPointer =
   return AnyPointerImpl(kind: AnyPointerKind.unpacker,
@@ -52,7 +92,7 @@ proc unpackPointer*(self: Unpacker, offset: int, typ: typedesc[AnyPointer]): Any
 
 proc copyPointer*(src: Unpacker, offset: int, dst: Packer, targetOffset: int)
 
-proc packPointer*[](p: Packer, offset: int, value: AnyPointer) =
+proc packPointer*(p: Packer, offset: int, value: AnyPointer) =
   if value == nil:
     packNil(p, offset)
     return
@@ -64,6 +104,8 @@ proc packPointer*[](p: Packer, offset: int, value: AnyPointer) =
     copyPointer(self.unpacker, self.offset, p, offset)
   of AnyPointerKind.obj:
     self.pack(p, offset)
+  of AnyPointerKind.cap:
+    packPointer(p, offset, self.capServer)
 
 proc copyStructInner(src: Unpacker, info: tuple[offset: int, dataLength: int, pointerCount: int], dst: Packer, targetDataOffset: int) =
   # copy contents of struct specified by `info`
@@ -190,3 +232,5 @@ proc pprint*(selfR: AnyPointer): string =
       return "AnyPointer(unpacker)"
     of AnyPointerKind.obj:
       return "AnyPointer(native)"
+    of AnyPointerKind.cap:
+      return "AnyPointer(cap)"

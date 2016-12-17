@@ -1,6 +1,8 @@
 ## Implements simple two party vat network.
 import capnp, caprpc/common, caprpc/twopartyschema, caprpc/msgstream, reactor, caprpc/rpcschema, caprpc/rpc
 
+export Side
+
 type
   TwoPartyNetwork* = ref object of RootObj
     conn: Connection

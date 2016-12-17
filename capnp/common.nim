@@ -16,3 +16,6 @@ proc capnpSizeofT*[T: enum](t: typedesc[T]): int =
 
 template capnpSizeof*(e): typed =
   capnpSizeofT(type(e))
+
+proc isNil*(a: CapServer): bool =
+  return a.Interface.vtable == nil

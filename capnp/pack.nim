@@ -123,11 +123,11 @@ proc packCompositeList[R](p: Packer, offset: int, value: seq[R], typ: typedesc[R
        (pointerCount.uint64 shl 48))
 
 proc packListImpl[T, R](p: Packer, offset: int, value: T, typ: typedesc[R]) =
-  if value == nil:
+  if value.isNil:
     return
   when typ is CapnpScalar:
     packScalarList(p, offset, value, typ)
-  elif typ is (seq|string):
+  elif typ is (seq|string) or compiles(toCapServer(value[0])):
     packPointerList(p, offset, value, typ)
   else:
     packCompositeList(p, offset, value, typ)
@@ -157,7 +157,9 @@ proc packCap(p: Packer, offset: int, value: CapServer) =
 proc packPointer*[T](p: Packer, offset: int, value: T) =
   when value is (string|seq):
     packList(p, offset, value)
-  elif compiles(toCapServer(value)):
+  elif T is CapServer:
+    packCap(p, offset, value)
+  elif T is SomeInterface:
     packCap(p, offset, toCapServer(value))
   else:
     if value.isNil:

@@ -1,3 +1,5 @@
-* two word intersegment pointers
-* bitfields
-* (codegen) unions nested in groups
+* capnp
+  * two word intersegment pointers
+  * (codegen) unions nested in groups
+* caprpc
+  * interface inhertiance

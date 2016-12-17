@@ -16,8 +16,12 @@ type
     system: RpcSystem
     vatConn: Connection
     questions: QuestionTable[QuestionId, Question]
+    answers: Table[AnswerId, Answer]
     exports: QuestionTable[ExportId, Export]
     imports: WeakValueTable[ImportId, RemoteCap]
+
+  Answer = ref object
+    result: Future[AnyPointer]
 
   Export = ref object
     refCount: int64
@@ -42,8 +46,8 @@ proc newRpcSystem*(network: VatNetwork, myBootstrap: CapServer=nothingImplemente
     connections: newWeakValueTable[VatId, VatConnection]())
 
 proc send(self: VatConnection, msg: Message): Future[void] =
-  when defined(traceMessages):
-    when defined(showSendTrace):
+  when defined(caprpcTraceMessages):
+    when defined(caprpcShowSendTrace):
       echo(getStackTrace())
     echo("\x1B[91msend\x1B[0m ", msg.pprint)
   return self.vatConn.output.provide(msg)
@@ -60,12 +64,26 @@ proc newQuestion(self: VatConnection): Question =
   q.id = self.questions.putNext(q)
   return q
 
+proc catchInternalError[T](f: Future[T], self: VatConnection) =
+  f.ignore # TODO
+
+proc releaseCap(cap: RemoteCap) =
+  when defined(caprpcTraceLifetime):
+    echo "release ", cap.importId
+  cap.vatConnection.send(Message(
+    kind: MessageKind.release,
+    release: Release(
+      referenceCount: cap.refCount.uint32,
+      id: cap.importId
+    )
+  )).catchInternalError(cap.vatConnection)
+
 proc getImportedCap(self: VatConnection, id: ImportId): CapServer =
   var cap: RemoteCap
   if id in self.imports:
     cap = self.imports[id]
   else:
-    cap = self.imports.addKey(id)
+    cap = self.imports.addKey(id, freeCallback=releaseCap)
     cap.vatConnection = self
     cap.importId = id
 
@@ -114,23 +132,45 @@ proc getFutureForQuestion(self: VatConnection, question: Question): Future[AnyPo
 
   return completer.getFuture
 
-proc getTargetCap(self: VatConnection, target: MessageTarget): CapServer =
+proc resolveTransform(item: AnyPointer, ops: seq[PromisedAnswer_Op]): AnyPointer =
+  var item = item
+
+  for op in ops:
+    case op.kind:
+    of PromisedAnswer_OpKind.noop:
+      discard
+    of PromisedAnswer_OpKind.getPointerField:
+      item = item.getPointerField(op.getPointerField.int)
+
+  return item
+
+proc getTargetCap(self: VatConnection, target: MessageTarget): Future[CapServer] {.async.} =
   case target.kind:
   of MessageTargetKind.importedCap:
     let id = target.importedCap
     if id notin self.exports:
-      raise newException(system.Exception, "bad export ID")
+      asyncRaise "bad export ID"
     return self.exports[id].cap
   of MessageTargetKind.promisedAnswer:
-    doAssert(false)
+    let promise = target.promisedAnswer
+    if promise.questionId notin self.answers:
+      asyncRaise "invalid question id"
+    return self.answers[promise.questionId].result.then(
+      x => x.resolveTransform(promise.transform).castAs(CapServer))
 
 proc respondToCall(self: VatConnection, msg: Message, value: Result[AnyPointer]) {.async.} =
   var ret: Return
 
   if value.isSuccess:
-    ret = Return(kind: ReturnKind.results, results: self.makePayload(value.get))
+    ret = Return(kind: ReturnKind.results,
+                 results: self.makePayload(value.get),
+                 answerId: msg.call.questionId)
   else:
-    ret = Return(kind: ReturnKind.exception, exception: rpcschema.Exception(reason: $value))
+    when defined(caprpcPrintExceptions):
+      value.error.printError
+    ret = Return(kind: ReturnKind.exception,
+                 exception: rpcschema.Exception(reason: $value),
+                 answerId: msg.call.questionId)
 
   await self.send(Message(kind: MessageKind.`return`, `return`: ret))
 
@@ -142,24 +182,28 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
       discard
 
     of MessageKind.call:
-      let target = self.getTargetCap(msg.call.target)
-      target.call(msg.call.interfaceId, msg.call.methodId, self.unpackPayload(msg.call.params)).onSuccessOrError(
-        proc(ret: Result[AnyPointer]) =
-          # TODO: close connection on failure
-          self.respondToCall(msg, ret).ignore
-      )
+      if msg.call.questionId in self.answers:
+        asyncRaise "question id reused"
 
+      let callResult = self.getTargetCap(msg.call.target).then(
+        target => target.call(msg.call.interfaceId, msg.call.methodId, self.unpackPayload(msg.call.params)))
+
+      callResult.onSuccessOrError(
+        proc(r: Result[AnyPointer]) = self.respondToCall(msg, r).catchInternalError(self))
+
+      self.answers[msg.call.questionId] = Answer(result: callResult)
     of MessageKind.`return`:
       let questionId = msg.`return`.answerId
-      let releaseParamCaps = msg.`return`.releaseParamCaps
-      # TODO: releaseParamCaps
+      # if msg.`return`.releaseParamCaps: asyncRaise("releaseParamCaps unsupported") TODO
       if questionId notin self.questions:
         stderr.writeLine("peer sent return to invalid question")
       else:
         await self.questions[questionId].returnCallback(msg.`return`)
 
     of MessageKind.finish:
-      discard
+      # TODO: handle releaseResultCaps
+      if msg.finish.releaseResultCaps: asyncRaise("releaseResultCaps unsupported")
+      self.answers.del(msg.finish.questionId)
     of MessageKind.resolve:
       discard
     of MessageKind.release:
@@ -181,7 +225,7 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
 
 proc start(self: VatConnection) {.async.} =
   asyncFor msg in self.vatConn.input:
-    when defined(traceMessages):
+    when defined(caprpcTraceMessages):
       echo("\x1B[92mrecv\x1B[0m ", msg.pprint)
     await self.processMessage(msg)
 
@@ -193,9 +237,11 @@ proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
   rpcConn.system = self
   rpcConn.vatConn = self.network.connect(vatId)
   rpcConn.questions = initQuestionTable[QuestionId, Question]()
+  rpcConn.answers = initTable[AnswerId, Answer]()
   rpcConn.imports = newWeakValueTable[ImportId, RemoteCap]()
   rpcConn.exports = initQuestionTable[ExportId, Export]()
-  echo "creating new connection"
+  when defined(caprpcTraceMessages):
+    echo "creating new connection"
 
   rpcConn.start.ignore() # TODO: close connection on error
   return rpcConn

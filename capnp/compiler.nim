@@ -1,9 +1,10 @@
-import capnp/schema, capnp, tables, hashes, collections/base, collections/iterate, collections/misc, strutils, tables
+import capnp/schema, capnp, tables, hashes, collections/iterate, collections, strutils, tables
 
 type
   Generator* = ref object
     nodes: Table[uint64, Node]
     typeNames: Table[uint64, string]
+    typeIds: seq[uint64]
     isGroup: Table[uint64, bool]
     toplevel: string
     bottom: string
@@ -12,14 +13,21 @@ type
 proc hash(x: uint64): Hash {.inline.} =
   result = Hash(x and 0xFFFFFFF)
 
-proc walkType(self: Generator, id: uint64, prefix: string="") =
+proc walkType(self: Generator, id: uint64, prefix: string="", foreign: bool) =
+  if id notin self.nodes: # not all foreign nodes are included
+    assert foreign
+    return
+
   let node = self.nodes[id]
+
+  if not foreign:
+    self.typeIds.add(id)
 
   for child in node.nestedNodes:
     let name = prefix & child.name
 
     self.typeNames[child.id] = name
-    self.walkType(child.id, name & "_")
+    self.walkType(child.id, name & "_", foreign=foreign)
 
   if node.kind == NodeKind.struct:
     for field in node.fields:
@@ -30,17 +38,17 @@ proc walkType(self: Generator, id: uint64, prefix: string="") =
           self.isGroup[field.typeId] = true
           self.typeNames[field.typeId] = name
 
-        self.walkType(field.typeId, name & "_")
+        self.walkType(field.typeId, name & "_", foreign=foreign)
   elif node.kind == NodeKind.`interface`:
     # TODO: superclasses
     for m in node.methods:
       let p = prefix & m.name & "_"
 
       self.typeNames[m.paramStructType] = p & "Params"
-      self.walkType(m.paramStructType, p & "Params_")
+      self.walkType(m.paramStructType, p & "Params_", foreign=foreign)
 
       self.typeNames[m.resultStructType] = p & "Result"
-      self.walkType(m.resultStructType, p & "Result_")
+      self.walkType(m.resultStructType, p & "Result_", foreign=foreign)
   elif node.kind != NodeKind.file:
     stderr.writeLine("ignoring ", node.kind, " ", id)
 
@@ -54,8 +62,6 @@ proc quoteId(s: string): string =
   return s
 
 proc quoteFieldId(s: string): string =
-  const primitiveTypes = "void bool int8 int16 int32 int64 uint8 uint16 uint32 uint64 float32 float64".split(" ")
-  #if s in primitiveTypes: return s & "_field"
   return s.quoteId
 
 proc type2nim(self: Generator, t: Type): string =
@@ -282,7 +288,6 @@ proc capCall*[T: $1](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
     let retFields = self.nodes[m.resultStructType].fields
     let args = paramFields.map(x => "argObj." & x.name).toSeq.join(", ")
     helpers &= "      let retVal = cap.$1($2)\L" % [m.name.quoteId, args]
-    var makeResult = ""
 
     if retFields.len == 0:
       helpers &= "      return retVal.then(() => $1_$2_Result())\L" % [name, m.name]
@@ -334,6 +339,18 @@ proc generateType(self: Generator, id: uint64) =
   elif node.kind == NodeKind.`interface`:
     self.generateInterface(name, node)
 
+proc makeImportPath(selfPath: string, path: string): tuple[importPath: string, moduleName: string] =
+  let purePath = path.split(".")[0..^2].join(".") & "_schema"
+  let newPath = selfPath.split("/")[0..^2] & purePath.split("/")
+  var processedPath: seq[string] = @[]
+  for item in newPath:
+    if item == "..":
+      discard processedPath.pop
+    else:
+      processedPath.add(item)
+
+  return (processedPath.join("/"), processedPath[^1])
+
 proc generateCode*(req: CodeGeneratorRequest) =
   let self = new(Generator)
   self.nodes = initTable[uint64, Node]()
@@ -341,19 +358,36 @@ proc generateCode*(req: CodeGeneratorRequest) =
   self.isGroup = initTable[uint64, bool]()
   self.toplevel = ""
   self.bottom = ""
+  self.typeIds = @[]
+  var header = ""
 
   for node in req.nodes:
     self.nodes[node.id] = node
 
-  for file in req.requestedFiles:
-    walkType(self, file.id)
+  if req.requestedFiles.len != 1:
+    stderr.writeLine "expected exactly one file"
+    quit(1)
 
-  for id in sorted(self.typeNames.keys):
-    self.generateType(id)
+  let file = req.requestedFiles[0]
+
+  header &= "# file: " & file.filename & "\L"
+  self.walkType(file.id, foreign=false)
+
+  for importStmt in file.imports:
+    if importStmt.name.startswith("/"): # global imports not supported
+      continue
+    let (importPath, moduleName) = makeImportPath(file.filename, importStmt.name)
+    header &= "from " & importPath & " import nil\L"
+    self.walkType(importStmt.id, prefix=moduleName & ".", foreign=true)
+
+  for id in self.typeIds:
+    if id in self.typeNames:
+      self.generateType(id)
 
   echo "import capnp, capnp/gensupport, collections/iface\n"
   if self.enableRpc:
     echo "import reactor, caprpc, caprpc/rpcgensupport"
+  echo header
   echo "type\n" & self.toplevel
   echo()
   echo self.bottom

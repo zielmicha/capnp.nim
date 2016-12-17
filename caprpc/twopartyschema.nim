@@ -1,7 +1,20 @@
 import capnp, capnp/gensupport, collections/iface
 
+# file: caprpc/rpc-twoparty.capnp
+
 type
+  Side* {.pure.} = enum
+    server = 0, client = 1
+
+  VatId* = ref object
+    side*: Side
+
+  ProvisionId* = ref object
+    joinId*: uint32
+
   RecipientId* = ref object
+
+  ThirdPartyCapId* = ref object
 
   JoinKeyPart* = ref object
     joinId*: uint32
@@ -13,20 +26,19 @@ type
     succeeded*: bool
     cap*: AnyPointer
 
-  Side* {.pure.} = enum
-    server = 0, client = 1
-
-  ThirdPartyCapId* = ref object
-
-  ProvisionId* = ref object
-    joinId*: uint32
-
-  VatId* = ref object
-    side*: Side
 
 
+makeStructCoders(VatId, [
+  (side, 0, Side(0), true)
+  ], [], [])
+
+makeStructCoders(ProvisionId, [
+  (joinId, 0, 0, true)
+  ], [], [])
 
 makeStructCoders(RecipientId, [], [], [])
+
+makeStructCoders(ThirdPartyCapId, [], [], [])
 
 makeStructCoders(JoinKeyPart, [
   (joinId, 0, 0, true),
@@ -41,15 +53,5 @@ makeStructCoders(JoinResult, [
   ], [
   (succeeded, 32, false, true)
   ])
-
-makeStructCoders(ThirdPartyCapId, [], [], [])
-
-makeStructCoders(ProvisionId, [
-  (joinId, 0, 0, true)
-  ], [], [])
-
-makeStructCoders(VatId, [
-  (side, 0, Side(0), true)
-  ], [], [])
 
 

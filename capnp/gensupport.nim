@@ -1,5 +1,6 @@
 # included from capnp/gensupport.nim
-import macros, strutils, capnp, collections
+import macros, strutils, capnp, collections, typetraits
+export typetraits.name
 
 type PointerFlag* {.pure.} = enum
   none, text
@@ -70,6 +71,10 @@ template capnpPackPointer*(name, offset, flag, condition): untyped =
 template capnpPackFinish*(): untyped =
   assert((scalarBuffer.len mod 8) == 0, "")
   return (tuple[dataSize: int, pointerCount: int])((scalarBuffer.len div 8, pointers.len))
+
+template capnpGetPointerField*(name, pointerIndex, condition) =
+  if pointerIndex == index and kindMatches(self, condition):
+    return name.toAnyPointer
 
 proc newComplexDotExpr(a: NimNode, b: NimNode): NimNode {.compileTime.} =
   var b = b
@@ -166,7 +171,23 @@ proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools: N
 
   body.add(parseStmt("capnpPackFinish()"))
 
+
+proc makeGetPointerField(typename: NimNode, pointers: NimNode): NimNode {.compiletime.} =
+  result = parseStmt("""proc getPointerField*[T: XXX](self: T, index: int): AnyPointer =
+  discard""")
+
+  result[0][2][0][1] = typeName # replace XXX
+  let body = result[0][6]
+
+  for p in pointers:
+    let name = p[0]
+    let offset = p[1]
+    let condition = p[3]
+
+    body.add(newCall(!"capnpGetPointerField", newComplexDotExpr(newIdentNode("self"), name), offset, condition))
+
 macro makeStructCoders*(typeName, scalars, pointers, bitfields): untyped =
   newNimNode(nnkStmtList)
+    .add(makeGetPointerField(typeName, pointers))
     .add(makeUnpacker(typeName, scalars, pointers, bitfields))
     .add(makePacker(typeName, scalars, pointers, bitfields))

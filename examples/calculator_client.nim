@@ -32,6 +32,10 @@ proc main() {.async.} =
   let ret1 = await calculator.evaluate(expr2)
   echo(await ret1.read())
 
+  discard (await calculator.getOperator(Calculator_Operator.subtract))
+  echo "collecting garbage..."
+  GC_fullCollect()
 
 when isMainModule:
   main().runMain()
+  GC_fullCollect()

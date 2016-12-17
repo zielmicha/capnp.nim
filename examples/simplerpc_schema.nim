@@ -1,27 +1,33 @@
 import capnp, capnp/gensupport, collections/iface
 
 import reactor, caprpc, caprpc/rpcgensupport
+# file: examples/simplerpc.capnp
+
 type
+  ContainsCap* = ref object
+    cap*: SimpleRpc
+
   SimpleRpc* = distinct Interface
   SimpleRpc_CallWrapper* = ref object of CapServerWrapper
 
   SimpleRpc_identity_Params* = ref object
     a*: int64
 
-  SimpleRpc_dup_Result* = ref object
-    b*: int64
-    c*: int64
-
   SimpleRpc_identity_Result* = ref object
     b*: int64
-
-  ContainsCap* = ref object
-    cap*: SimpleRpc
 
   SimpleRpc_dup_Params* = ref object
     a*: int64
 
+  SimpleRpc_dup_Result* = ref object
+    b*: int64
+    c*: int64
 
+
+
+makeStructCoders(ContainsCap, [], [
+  (cap, 0, PointerFlag.none, true)
+  ], [])
 
 interfaceMethods SimpleRpc:
   toCapServer(): CapServer
@@ -54,21 +60,17 @@ makeStructCoders(SimpleRpc_identity_Params, [
   (a, 0, 0, true)
   ], [], [])
 
-makeStructCoders(SimpleRpc_dup_Result, [
-  (b, 0, 0, true),
-  (c, 8, 0, true)
-  ], [], [])
-
 makeStructCoders(SimpleRpc_identity_Result, [
   (b, 0, 0, true)
   ], [], [])
 
-makeStructCoders(ContainsCap, [], [
-  (cap, 0, PointerFlag.none, true)
-  ], [])
-
 makeStructCoders(SimpleRpc_dup_Params, [
   (a, 0, 0, true)
+  ], [], [])
+
+makeStructCoders(SimpleRpc_dup_Result, [
+  (b, 0, 0, true),
+  (c, 8, 0, true)
   ], [], [])
 
 

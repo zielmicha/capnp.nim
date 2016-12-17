@@ -302,7 +302,8 @@ proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
 
   when typ is seq or typ is string:
     return unpackList(self, offset, typ)
-  elif compiles(createFromCap(T, CapServer(Interface()))):
+  elif T is CapServer or T is SomeInterface:
+    # compiles(createFromCap(T, CapServer(Interface())))
     return unpackCap(self, offset, typ)
   else:
     return unpackStruct(self, offset, typ)
