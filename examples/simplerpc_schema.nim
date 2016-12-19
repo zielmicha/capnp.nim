@@ -47,7 +47,7 @@ proc capCall*[T: SimpleRpc](cap: T, id: uint64, args: AnyPointer): Future[AnyPoi
     of 1:
       let argObj = args.castAs(SimpleRpc_dup_Params)
       let retVal = cap.dup(argObj.a)
-      return retVal.asAnyPointerFuture
+      return retVal.toAnyPointerFuture
     else: raise newException(NotImplementedError, "not implemented")
 
 proc identity*[T: SimpleRpc_CallWrapper](self: T, a: int64): Future[int64] =

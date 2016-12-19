@@ -295,7 +295,7 @@ proc capCall*[T: $1](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
       helpers &= "      return wrapFutureInSinglePointer($1_$2_Result, $3, retVal)\L" % [name, m.name, retFields[0].name.quoteId]
     else:
       let retArgs = retFields.map(x => x.name & ": retVal." & x.name).toSeq.join(", ")
-      helpers &= "      return retVal.asAnyPointerFuture\L" % [name, m.name, retArgs]
+      helpers &= "      return retVal.toAnyPointerFuture\L" % [name, m.name, retArgs]
   helpers &= "    else: raise newException(NotImplementedError, \"not implemented\")\L"
 
   # CallWrapper implementation -

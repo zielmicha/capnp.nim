@@ -233,7 +233,7 @@ proc unpackListImpl[T, Target](self: Unpacker, offset: int, typ: typedesc[T], ta
 
   when typ is CapnpScalar:
     return unpackScalarList(self, typ, target, bodyOffset, itemSizeTag, itemNumber)
-  elif typ is seq|string:
+  elif typ is seq|string or typ is SomeInterface:
     return unpackPointerList(self, typ, target, bodyOffset, itemSizeTag, itemNumber)
   else:
     return unpackCompositeList(self, typ, bodyOffset, itemSizeTag, itemNumber)
