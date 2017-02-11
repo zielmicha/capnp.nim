@@ -192,3 +192,9 @@ proc packPointer*[T](value: T): string =
   let packer = newPacker()
   packPointer(packer, 0, value)
   return packer.buffer
+
+proc packPointerIgnoringCaps*[T](value: T): string =
+  let packer = newPacker()
+  packer.capToIndex = proc(cap: CapServer): int = 0xBEEF
+  packPointer(packer, 0, value)
+  return packer.buffer

@@ -192,6 +192,7 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
         proc(r: Result[AnyPointer]) = self.respondToCall(msg, r).catchInternalError(self))
 
       self.answers[msg.call.questionId] = Answer(result: callResult)
+
     of MessageKind.`return`:
       let questionId = msg.`return`.answerId
       # if msg.`return`.releaseParamCaps: asyncRaise("releaseParamCaps unsupported") TODO
@@ -202,8 +203,10 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
 
     of MessageKind.finish:
       # TODO: handle releaseResultCaps
-      if msg.finish.releaseResultCaps: asyncRaise("releaseResultCaps unsupported")
+      if msg.finish.releaseResultCaps:
+        discard # answers[msg.finish.questionId].then(x => self.releasePtr(x)).ignore
       self.answers.del(msg.finish.questionId)
+
     of MessageKind.resolve:
       discard
     of MessageKind.release:

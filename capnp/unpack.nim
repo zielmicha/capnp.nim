@@ -287,11 +287,16 @@ proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   mixin createFromCap
 
   let pointer = unpack(self.buffer, offset, uint64)
-  if extractBits(pointer, 0, bits=2) != 3:
-    raise newException(CapnpFormatError, "expected capability, found something else")
 
-  let kind = extractBits(pointer, 3, bits=30)
+  if pointer == 0:
+    raise newException(CapnpFormatError, "null capability")
+
+  if extractBits(pointer, 0, bits=2) != 3:
+    raise newException(CapnpFormatError, "expected capability, found something else ($1)" % [$extractBits(pointer, 0, bits=2)])
+
+  let kind = extractBits(pointer, 3, bits=29)
   if kind != 0:
+    echo pointer, " ", kind
     raise newException(CapnpFormatError, "found unknown 'other' pointer")
 
   let capId = extractBits(pointer, 32, bits=32)

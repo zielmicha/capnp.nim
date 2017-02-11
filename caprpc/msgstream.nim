@@ -1,7 +1,7 @@
 ## Sending/receiving capn'p messages over stream in a same format as C++ RPC implementation.
 import capnp, reactor, collections
 
-proc readSegments*(stream: Stream[byte]): Future[string] {.async.} =
+proc readSegments*(stream: Input[byte]): Future[string] {.async.} =
   let segmentCount = int(await stream.readItem(uint32, littleEndian))
   if segmentCount > 512:
     raise newException(CapnpFormatError, "too many segments")
@@ -25,14 +25,14 @@ proc readSegments*(stream: Stream[byte]): Future[string] {.async.} =
   s &= await stream.read(dataLength)
   return s
 
-proc wrapByteStream*[T](stream: Stream[byte], t: typedesc[T]): Stream[T] {.asynciterator.} =
+proc wrapByteInput*[T](stream: Input[byte], t: typedesc[T]): Input[T] {.asynciterator.} =
   ## Create a stream for receiving capn'p messages from byte stream.
   while true:
     let packed = await readSegments(stream)
     let val = newUnpacker(packed).unpackPointer(0, T)
     asyncYield val
 
-proc pipeMsg[T](stream: Stream[T], provider: ByteProvider) {.async.} =
+proc pipeMsg[T](stream: Input[T], provider: ByteOutput) {.async.} =
   asyncFor msg in stream:
     let serialized = capnp.packPointer(msg)
     let lengthInWords = len(serialized) div 8
@@ -41,11 +41,11 @@ proc pipeMsg[T](stream: Stream[T], provider: ByteProvider) {.async.} =
     # echo "send ", data.encodeHex
     await provider.write(data)
 
-proc wrapByteProvider*[T](byteprovider: ByteProvider, t: typedesc[T]): Provider[T] =
+proc wrapByteOutput*[T](byteprovider: ByteOutput, t: typedesc[T]): Output[T] =
   ## Create a provider for sending messages over byte provider.
-  let (stream, provider) = newStreamProviderPair[T]()
+  let (stream, provider) = newInputOutputPair[T]()
   pipeMsg(stream, byteprovider).onErrorClose(stream)
   return provider
 
 proc wrapBytePipe*[T](pipe: BytePipe, t: typedesc[T]): Pipe[T] =
-  return Pipe[T](input: wrapByteStream(pipe.input, T), output: wrapByteProvider(pipe.output, T))
+  return Pipe[T](input: wrapByteInput(pipe.input, T), output: wrapByteOutput(pipe.output, T))

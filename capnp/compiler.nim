@@ -290,7 +290,7 @@ proc capCall*[T: $1](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
     helpers &= "      let retVal = cap.$1($2)\L" % [m.name.quoteId, args]
 
     if retFields.len == 0:
-      helpers &= "      return retVal.then(() => $1_$2_Result())\L" % [name, m.name]
+      helpers &= "      return retVal.then(() => $1_$2_Result().toAnyPointer)\L" % [name, m.name]
     elif retFields.len == 1:
       helpers &= "      return wrapFutureInSinglePointer($1_$2_Result, $3, retVal)\L" % [name, m.name, retFields[0].name.quoteId]
     else:
