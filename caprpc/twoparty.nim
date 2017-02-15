@@ -53,4 +53,6 @@ proc newTwoPartyClient*(pipe: BytePipe): RpcSystem =
 
 proc newTwoPartyServer*(pipe: BytePipe, myBootstrap: CapServer): RpcSystem =
   let net = newTwoPartyNetwork(pipe, Side.server)
-  return newRpcSystem(net.asVatNetwork, myBootstrap)
+  let system = newRpcSystem(net.asVatNetwork, myBootstrap)
+  system.initConnection("client") # start listener
+  return system

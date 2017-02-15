@@ -289,7 +289,7 @@ proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   let pointer = unpack(self.buffer, offset, uint64)
 
   if pointer == 0:
-    raise newException(CapnpFormatError, "null capability")
+    return createFromCap(T, self.getCap(-1))
 
   if extractBits(pointer, 0, bits=2) != 3:
     raise newException(CapnpFormatError, "expected capability, found something else ($1)" % [$extractBits(pointer, 0, bits=2)])

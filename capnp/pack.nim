@@ -151,8 +151,11 @@ proc packStruct[T](p: Packer, offset: int, value: T) =
 
 proc packCap(p: Packer, offset: int, value: CapServer) =
   let id = p.capToIndex(value)
-  pack(p.buffer, offset,
-       3.uint64 or (id.uint64 shl 32))
+  if id == -1:
+    pack(p.buffer, offset, 0)
+  else:
+    pack(p.buffer, offset,
+         3.uint64 or (id.uint64 shl 32))
 
 proc packPointer*[T](p: Packer, offset: int, value: T) =
   when value is (string|seq):

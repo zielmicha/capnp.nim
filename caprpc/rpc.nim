@@ -50,7 +50,7 @@ proc send(self: VatConnection, msg: Message): Future[void] =
     when defined(caprpcShowSendTrace):
       echo(getStackTrace())
     echo("\x1B[91msend\x1B[0m ", msg.pprint)
-  return self.vatConn.output.provide(msg)
+  return self.vatConn.output.send(msg)
 
 proc finishQuestion(self: VatConnection, questionId: QuestionId): Future[void] {.async.} =
   await self.send(Message(
@@ -110,7 +110,11 @@ proc capFromDescriptor(self: VatConnection, descriptor: CapDescriptor): CapServe
 
 proc unpackPayload(self: VatConnection, payload: Payload): AnyPointer =
   let caps = payload.capTable.map(x => self.capFromDescriptor(x)).toSeq
-  payload.content.setCapGetter(proc(id: int): CapServer = caps[id])
+  payload.content.setCapGetter(proc(id: int): CapServer =
+                                   if id == -1: return nullCap
+                                   if id < 0 or id >= caps.len:
+                                     raise newException(system.Exception, "invalid capability")
+                                   return caps[id])
   return payload.content
 
 proc getFutureForQuestion(self: VatConnection, question: Question): Future[AnyPointer] =
@@ -158,19 +162,19 @@ proc getTargetCap(self: VatConnection, target: MessageTarget): Future[CapServer]
     return self.answers[promise.questionId].result.then(
       x => x.resolveTransform(promise.transform).castAs(CapServer))
 
-proc respondToCall(self: VatConnection, msg: Message, value: Result[AnyPointer]) {.async.} =
+proc respondToCall(self: VatConnection, msg: Message, questionId: uint32, value: Result[AnyPointer]) {.async.} =
   var ret: Return
 
   if value.isSuccess:
     ret = Return(kind: ReturnKind.results,
                  results: self.makePayload(value.get),
-                 answerId: msg.call.questionId)
+                 answerId: questionId)
   else:
     when defined(caprpcPrintExceptions):
       value.error.printError
     ret = Return(kind: ReturnKind.exception,
                  exception: rpcschema.Exception(reason: $value),
-                 answerId: msg.call.questionId)
+                 answerId: questionId)
 
   await self.send(Message(kind: MessageKind.`return`, `return`: ret))
 
@@ -181,17 +185,26 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
     of MessageKind.abort:
       discard
 
-    of MessageKind.call:
-      if msg.call.questionId in self.answers:
+    of {MessageKind.call, MessageKind.bootstrap}:
+      let questionId = if msg.kind == MessageKind.bootstrap:
+                         msg.bootstrap.questionId
+                       else:
+                         msg.call.questionId
+
+      if questionId in self.answers:
         asyncRaise "question id reused"
 
-      let callResult = self.getTargetCap(msg.call.target).then(
-        target => target.call(msg.call.interfaceId, msg.call.methodId, self.unpackPayload(msg.call.params)))
+      let callResult =
+        if msg.kind == MessageKind.bootstrap:
+          now(just(self.system.myBootstrap.toAnyPointer))
+        else:
+          self.getTargetCap(msg.call.target).then(
+            target => target.call(msg.call.interfaceId, msg.call.methodId, self.unpackPayload(msg.call.params)))
 
       callResult.onSuccessOrError(
-        proc(r: Result[AnyPointer]) = self.respondToCall(msg, r).catchInternalError(self))
+        proc(r: Result[AnyPointer]) = self.respondToCall(msg, questionId, r).catchInternalError(self))
 
-      self.answers[msg.call.questionId] = Answer(result: callResult)
+      self.answers[questionId] = Answer(result: callResult)
 
     of MessageKind.`return`:
       let questionId = msg.`return`.answerId
@@ -212,8 +225,6 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
     of MessageKind.release:
       discard
     of MessageKind.obsoleteSave:
-      discard
-    of MessageKind.bootstrap:
       discard
     of MessageKind.obsoleteDelete:
       discard
@@ -249,6 +260,10 @@ proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
   rpcConn.start.ignore() # TODO: close connection on error
   return rpcConn
 
+proc initConnection*(self: RpcSystem, vatId: VatId) =
+  ## Initialize connecting to vatId without bootstrapping. To be used by VatNetwork.
+  discard self.getConnection(vatId)
+
 proc bootstrap*(self: RpcSystem, vatId: VatId): Future[AnyPointer] {.async.} =
   let conn = self.getConnection(vatId)
   let question = conn.newQuestion()
@@ -279,6 +294,8 @@ proc makePayload(self: VatConnection, payload: AnyPointer): Payload =
   var capTable: seq[CapDescriptor] = @[]
 
   proc capToIndex(cap: CapServer): int =
+    if cap.isNullCap:
+      return -1
     capTable.add(self.exportCap(cap))
     return capTable.len - 1
 

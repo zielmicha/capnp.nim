@@ -71,6 +71,14 @@ let nothingImplemented* = inlineCap(CapServer, CapServerInlineImpl(
              return now(error(AnyPointer, "not implemented")))
 ))
 
+let nullCap* = inlineCap(CapServer, CapServerInlineImpl(
+  call: (proc(ifaceId: uint64, methodId: uint64, args: AnyPointer): Future[AnyPointer] =
+             return now(error(AnyPointer, "null capability called")))
+))
+
+proc isNullCap*(cap: CapServer): bool =
+  return cap.Interface.obj == nullCap.Interface.obj and cap.Interface.vtable == nullCap.Interface.vtable
+
 proc testCopy*[T](t: T) =
   ## Test if ``t`` serializes and unserialized correctly. Useful for debugging capnp.nim.
   let data = packPointerIgnoringCaps(t)

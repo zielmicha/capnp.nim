@@ -3,7 +3,9 @@ import reactor, capnp, caprpc, calculator_schema
 
 
 proc main() {.async.} =
+  echo "connecting"
   let sys = newTwoPartyClient(await connectTcp("127.0.0.1:7890")) # localhost:6789
+  echo "ok"
 
   discard createFromCap(Calculator_Value, CapServer(Interface()))
   discard createFromCap(Calculator, CapServer(Interface()))
