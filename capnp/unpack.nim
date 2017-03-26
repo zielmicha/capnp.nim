@@ -13,7 +13,7 @@ type Unpacker* = ref object
   currentSegment: int
   getCap*: (proc(id: int): CapServer)
 
-proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: int, dataLength: int, pointerCount: int]
+proc parseStruct*(self: Unpacker, pointer: uint64): tuple[offset: int, dataLength: int, pointerCount: int]
 
 template deferRestoreStackLimit(): untyped =
   let old = self.stackLimit
@@ -90,15 +90,18 @@ proc unpackOffsetSigned(num: int): int =
 
 assert unpackOffsetSigned(1073741823) == -1
 
-proc unpackInterSegment[T](self: Unpacker, pointer: uint64, typ: typedesc[T]): T =
-  let typeTag = extractBits(pointer, 0, bits=2)
+proc unpackInterSegment[T](self: Unpacker, tag: uint64, typ: typedesc[T]): T =
+  let typeTag = extractBits(tag, 0, bits=2)
   if typeTag != 2:
-    raise newException(CapnpFormatError, "expected intersegment pointer")
+    raise newException(CapnpFormatError, "expected intersegment tag")
 
-  let oneWord = extractBits(pointer, 2, bits=1) == 0
-  let offset = extractBits(pointer, 3, bits=29) * 8
-  let newSegment = extractBits(pointer, 32, bits=32)
+  let oneWord = extractBits(tag, 2, bits=1) == 0
+  let offset = extractBits(tag, 3, bits=29) * 8
+  let newSegment = extractBits(tag, 32, bits=32)
   let oldSegment = self.currentSegment
+
+  if newSegment < 0 or newSegment >= self.segments.len:
+    raise newException(CapnpFormatError, "segment out of range")
 
   self.currentSegment = newSegment
   defer: self.currentSegment = oldSegment
@@ -107,7 +110,22 @@ proc unpackInterSegment[T](self: Unpacker, pointer: uint64, typ: typedesc[T]): T
     mixin unpackPointer
     return unpackPointer(self, offset, typ)
   else:
-    raise newException(CapnpFormatError, "two-word pointers not implemented")
+    let tag1 = unpack(self.buffer, offset, uint64)
+    let tag2 = unpack(self.buffer, offset + 8, uint64)
+
+    assert extractBits(tag1, 0, bits=2) == 2
+    assert extractBits(tag1, 2, bits=1) == 0
+    let newSegment2 = extractBits(tag1, 32, bits=32)
+    #echo name(T), " -> segments:", oldSegment, " ", newSegment, " ", newSegment2
+    #echo "segment count: ", self.segments.len
+
+    if newSegment2 < 0 or newSegment2 >= self.segments.len:
+      raise newException(CapnpFormatError, "segment out of range")
+
+    self.currentSegment = newSegment2
+    let offset2 = extractBits(tag1, 3, bits=29) * 8
+
+    return unpackPointer(self, offset2, tag2, typ)
 
 proc unpackPointerList[T](self: Unpacker, typ: typedesc[T], target: typedesc[seq[T]], bodyOffset: int, itemSizeTag: int, itemNumber: int): seq[T] =
   mixin unpackPointer
@@ -186,7 +204,7 @@ proc unpackCompositeList[T](self: Unpacker, typ: typedesc[T], bodyOffset: int, i
   deferRestoreStackLimit
   self.decreaseLimit(wordCount * 8)
 
-  let s = self.parseStruct(bodyOffset, parseOffset=false)
+  let s = self.parseStruct(unpack(self.buffer, bodyOffset, uint64))
   let itemCount = s.offset
   let itemSize = (s.dataLength + 8 * s.pointerCount)
 
@@ -209,22 +227,20 @@ proc unpackCompositeList[T](self: Unpacker, typ: typedesc[T], bodyOffset: int, i
     let itemOffset = bodyOffset + 8 + itemSize * i
     result[i] = capnpUnpackStructImpl(self, itemOffset, s.dataLength, s.pointerCount, typ)
 
-proc unpackListImpl[T, Target](self: Unpacker, offset: int, typ: typedesc[T], target: typedesc[Target]): Target =
+proc unpackListImpl[T, Target](self: Unpacker, bodyOffset: int, tag: uint64, typ: typedesc[T], target: typedesc[Target]): Target =
   let buffer = self.buffer
 
-  let pointer = unpack(buffer, offset, uint64)
-  let typeTag = extractBits(pointer, 0, bits=2)
+  let typeTag = extractBits(tag, 0, bits=2)
   if typeTag == 2:
-    return unpackInterSegment(self, pointer, Target)
-  if pointer == 0:
+    return unpackInterSegment(self, tag, Target)
+  if tag == 0:
     return nil
 
   if typeTag != 1:
     raise newException(CapnpFormatError, "expected list, found " & $typeTag)
 
-  let bodyOffset = extractBits(pointer, 2, bits=30).unpackOffsetSigned * 8 + offset + 8
-  let itemSizeTag = extractBits(pointer, 32, bits=3)
-  let itemNumber = extractBits(pointer, 35, bits=29)
+  let itemSizeTag = extractBits(tag, 32, bits=3)
+  let itemNumber = extractBits(tag, 35, bits=29)
 
   when typ is bool: # bitseq
     if itemSizeTag != 1:
@@ -238,14 +254,13 @@ proc unpackListImpl[T, Target](self: Unpacker, offset: int, typ: typedesc[T], ta
   else:
     return unpackCompositeList(self, typ, bodyOffset, itemSizeTag, itemNumber)
 
-proc unpackList*[T](self: Unpacker, offset: int, target: typedesc[seq[T]]): seq[T] =
-  return self.unpackListImpl(offset, T, seq[T])
+proc unpackList*[T](self: Unpacker, bodyOffset: int, tag: uint64, target: typedesc[seq[T]]): seq[T] =
+  return self.unpackListImpl(bodyOffset, tag, T, seq[T])
 
-proc unpackList*(self: Unpacker, offset: int, target: typedesc[string]): string =
-  return self.unpackListImpl(offset, byte, string)
+proc unpackList*(self: Unpacker, bodyOffset: int, tag: uint64, target: typedesc[string]): string =
+  return self.unpackListImpl(bodyOffset, tag, byte, string)
 
-proc parseStruct(self: Unpacker, offset: int, parseOffset=true): tuple[offset: int, dataLength: int, pointerCount: int] =
-  let pointer = unpack(self.buffer, offset, uint64)
+proc parseStruct(self: Unpacker, pointer: uint64): tuple[offset: int, dataLength: int, pointerCount: int] =
   let typ = extractBits(pointer, 0, bits=2)
 
   if pointer == 0:
@@ -265,53 +280,47 @@ proc parseStruct(self: Unpacker, offset: int, parseOffset=true): tuple[offset: i
   if result.pointerCount > bufferLimit:
     raise newException(CapnpFormatError, "struct too big")
 
-  if parseOffset:
-    result.offset *= 8
-    result.offset += offset + 8
-
-    if result.offset < 0 or result.offset > self.buffer.len or result.offset + result.dataLength > self.buffer.len or result.offset + result.dataLength + result.pointerCount * 8 > self.buffer.len:
-      raise newException(CapnpFormatError, "index error")
-
-proc unpackStruct[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
-  let pointer = unpack(self.buffer, offset, uint64)
-  if extractBits(pointer, 0, bits=2) == 2:
-    return unpackInterSegment(self, pointer, T)
+proc unpackStruct[T](self: Unpacker, bodyOffset: int, tag: uint64, typ: typedesc[T]): T =
+  if extractBits(tag, 0, bits=2) == 2:
+    return unpackInterSegment(self, tag, T)
   
   mixin capnpUnpackStructImpl
-  let s = parseStruct(self, offset)
+  let s = parseStruct(self, tag)
   deferRestoreStackLimit
   self.decreaseLimit(s.pointerCount * 8 + s.dataLength)
-  return capnpUnpackStructImpl(self, s.offset, s.dataLength, s.pointerCount, typ)
+  return capnpUnpackStructImpl(self, bodyOffset, s.dataLength, s.pointerCount, typ)
 
-proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
+proc unpackCap[T](self: Unpacker, bodyOffset: int, tag: int, typ: typedesc[T]): T =
   mixin createFromCap
 
-  let pointer = unpack(self.buffer, offset, uint64)
-
-  if pointer == 0:
+  if tag == 0:
     return createFromCap(T, self.getCap(-1))
 
-  if extractBits(pointer, 0, bits=2) != 3:
-    raise newException(CapnpFormatError, "expected capability, found something else ($1)" % [$extractBits(pointer, 0, bits=2)])
+  if extractBits(tag, 0, bits=2) != 3:
+    raise newException(CapnpFormatError, "expected capability, found something else ($1)" % [$extractBits(tag, 0, bits=2)])
 
-  let kind = extractBits(pointer, 3, bits=29)
+  let kind = extractBits(tag, 3, bits=29)
   if kind != 0:
-    echo pointer, " ", kind
     raise newException(CapnpFormatError, "found unknown 'other' pointer")
 
-  let capId = extractBits(pointer, 32, bits=32)
+  let capId = extractBits(tag, 32, bits=32)
   return createFromCap(T, self.getCap(capId))
 
-proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
+proc unpackPointer*[T](self: Unpacker, bodyOffset: int, tag: uint64, typ: typedesc[T]): T =
   mixin createFromCap
 
   when typ is seq or typ is string:
-    return unpackList(self, offset, typ)
+    return unpackList(self, bodyOffset, tag, typ)
   elif T is CapServer or T is SomeInterface:
     # compiles(createFromCap(T, CapServer(Interface())))
-    return unpackCap(self, offset, typ)
+    return unpackCap(self, bodyOffset, tag, typ)
   else:
-    return unpackStruct(self, offset, typ)
+    return unpackStruct(self, bodyOffset, tag, typ)
+
+proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
+  let tag = unpack(self.buffer, offset, uint64)
+  let bodyOffset = extractBits(tag, 2, bits=30).unpackOffsetSigned * 8 + offset + 8
+  return self.unpackPointer(bodyOffset, tag, typ)
 
 proc postprocessText(t: string): string =
   if t == nil: return nil

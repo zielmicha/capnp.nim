@@ -116,7 +116,7 @@ proc copyStructInner(src: Unpacker, info: tuple[offset: int, dataLength: int, po
                 dst, targetDataOffset + info.dataLength + pointerI * 8)
 
 proc copyStruct(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
-  let info = src.parseStruct(offset)
+  let info = src.parseStruct(unpack(src.buffer, offset, uint64))
 
   let old = src.stackLimit
   defer: src.stackLimit = old
@@ -171,7 +171,7 @@ proc copyList(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
     if bodyOffset + 8 > src.buffer.len:
       raise newException(CapnpFormatError, "index error")
 
-    let info = src.parseStruct(bodyOffset, parseOffset=false)
+    let info = src.parseStruct(unpack(src.buffer, bodyOffset, uint64))
     let itemCount = info.offset
     let itemSize = (info.dataLength + 8 * info.pointerCount)
 
