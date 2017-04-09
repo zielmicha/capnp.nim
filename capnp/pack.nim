@@ -43,7 +43,8 @@ proc packScalarList[T, R](p: Packer, offset: int, value: T, typ: typedesc[R]) =
 
   p.buffer.setLen bodyOffset + value.len * sizeof(typ)
 
-  copyMem(addr p.buffer[bodyOffset], unsafeAddr value[0], value.len * sizeof(typ))
+  if value.len != 0:
+    copyMem(addr p.buffer[bodyOffset], unsafeAddr value[0], value.len * sizeof(typ))
 
   when cpuEndian == bigEndian:
     {.error: "TODO: swap items on list".}
