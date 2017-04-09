@@ -36,7 +36,7 @@ proc newUnpacker*(segments: seq[string]): Unpacker =
   result.getCap = proc(id: int): CapServer =
                       raise newException(Exception, "this unpacker doesn't support capabilities")
 
-proc buffer*(self: Unpacker): string {.inline.} =
+proc buffer*(self: Unpacker): var string {.inline.} =
   self.segments[self.currentSegment]
 
 proc parseMultiSegment(buffer: string): seq[string] =
@@ -116,8 +116,6 @@ proc unpackInterSegment[T](self: Unpacker, tag: uint64, typ: typedesc[T]): T =
     assert extractBits(tag1, 0, bits=2) == 2
     assert extractBits(tag1, 2, bits=1) == 0
     let newSegment2 = extractBits(tag1, 32, bits=32)
-    #echo name(T), " -> segments:", oldSegment, " ", newSegment, " ", newSegment2
-    #echo "segment count: ", self.segments.len
 
     if newSegment2 < 0 or newSegment2 >= self.segments.len:
       raise newException(CapnpFormatError, "segment out of range")
