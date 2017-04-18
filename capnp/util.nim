@@ -1,5 +1,5 @@
 when not compiles(isInCapnp): {.error: "do not import this file directly".}
-import endians, strutils, sequtils, typetraits, collections/reflect, collections/lang, collections/iface, collections/pprint
+import endians, strutils, sequtils, typetraits, collections/reflect, collections/lang, collections/iface, collections/pprint, collections/views
 
 type CapnpFormatError* = object of Exception
 
@@ -45,6 +45,11 @@ proc unpack*[T](v: string, offset: int, t: typedesc[T], endian=littleEndian): T 
     raise newException(CapnpFormatError, "bad offset (offset=$1 len=$2)" % [$offset, $v.len])
   convertEndian(sizeof(T), addr result, unsafeAddr v[offset])
 
+proc unpack*[T](v: ByteView, offset: int, t: typedesc[T], endian=littleEndian): T {.inline.} =
+  if not (offset < v.len and offset + sizeof(t) <= v.len and offset >= 0):
+    raise newException(CapnpFormatError, "bad offset (offset=$1 len=$2)" % [$offset, $v.len])
+  convertEndian(sizeof(T), addr result, v.slice(offset).data)
+
 proc extractBits*(v: uint64|uint32|uint16|uint8, k: Natural, bits: int): int {.inline.} =
   assert k + bits <= sizeof(v) * 8
   return cast[int]((v shr k) and ((1 shl bits) - 1).uint64)
@@ -74,7 +79,7 @@ proc trimWords*(s: var string, minSize=0) =
   if s.len < minSize * 8:
     s &= newZeroString(minSize - s.len)
 
-proc insertAt*(s: var string, offset: int, data: string) =
+proc insertAt*(s: var string, offset: int, data: ByteView) =
   assert s != nil
 
   if offset < 0:
@@ -82,4 +87,7 @@ proc insertAt*(s: var string, offset: int, data: string) =
   if s.len < offset + data.len:
     s.setLen offset + data.len
 
-  copyMem(addr s[offset], unsafeAddr data[0], data.len)
+  data.copyTo(s.stringView.slice(offset))
+
+proc insertAt*(s: var string, offset: int, data: string) =
+  insertAt(s, offset, ByteView(data: unsafeAddr data, size: data.len))

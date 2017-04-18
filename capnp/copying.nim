@@ -109,7 +109,7 @@ proc packPointer*(p: Packer, offset: int, value: AnyPointer) =
 
 proc copyStructInner(src: Unpacker, info: tuple[offset: int, dataLength: int, pointerCount: int], dst: Packer, targetDataOffset: int) =
   # copy contents of struct specified by `info`
-  dst.buffer.insertAt(targetDataOffset, src.buffer[info.offset..<info.offset + info.dataLength])
+  dst.buffer.insertAt(targetDataOffset, src.buffer.slice(info.offset, info.dataLength))
   dst.buffer.insertAt(targetDataOffset + info.dataLength, newZeroString(info.pointerCount * 8))
   for pointerI in 0..<info.pointerCount:
     copyPointer(src, info.offset + info.dataLength + pointerI * 8,
@@ -154,7 +154,7 @@ proc copyList(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
       raise newException(CapnpFormatError, "index error")
 
     src.decreaseLimit(dataSize)
-    dst.buffer &= src.buffer[bodyOffset..<bodyOffset + dataSize]
+    dst.buffer &= src.buffer.slice(bodyOffset, dataSize).copyAsString
     dst.buffer.padWords
   of 6:
     let dataSize = itemNumber * 8

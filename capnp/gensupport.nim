@@ -1,5 +1,5 @@
 # included from capnp/gensupport.nim
-import macros, strutils, capnp, collections, typetraits
+import macros, strutils, capnp, collections, typetraits, collections/views
 export typetraits.name
 
 type PointerFlag* {.pure.} = enum

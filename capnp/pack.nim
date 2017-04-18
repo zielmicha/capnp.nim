@@ -139,6 +139,9 @@ proc packList*[T](p: Packer, offset: int, value: seq[T]) =
 proc packList*(p: Packer, offset: int, value: string) =
   packListImpl(p, offset, value, byte)
 
+proc packList*(p: Packer, offset: int, value: ByteView) =
+  packListImpl(p, offset, value, byte)
+
 proc packStruct[T](p: Packer, offset: int, value: T) =
   mixin capnpPackStructImpl
 
@@ -159,7 +162,7 @@ proc packCap(p: Packer, offset: int, value: CapServer) =
          3.uint64 or (id.uint64 shl 32))
 
 proc packPointer*[T](p: Packer, offset: int, value: T) =
-  when value is (string|seq):
+  when value is (string|seq|ByteView):
     packList(p, offset, value)
   elif T is CapServer:
     packCap(p, offset, value)
@@ -184,12 +187,12 @@ proc preprocessText[T](v: seq[T]): seq[T] =
 proc packText*[T](p: Packer, offset: int, value: T) =
   packPointer(p, offset, preprocessText(value))
 
-proc newPacker*(): Packer =
+proc newPacker*(initialBufferSize=0): Packer =
   let capToIndex = proc(cap: CapServer): int =
     raise newException(Exception, "this packer doesn't support capabilities")
 
   return Packer(
-    buffer: newZeroString(8),
+    buffer: newZeroString(max(initialBufferSize, 8)),
     capToIndex: capToIndex)
 
 proc packPointer*[T](value: T): string =

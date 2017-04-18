@@ -1,6 +1,6 @@
 # included from capnp.nim
 when not compiles(isInCapnp): {.error: "do not import this file directly".}
-import collections
+import collections, collections/views
 
 const
   bufferLimit* = 64 * 1024 * 1024
@@ -9,7 +9,8 @@ const
 type Unpacker* = ref object
   readLimit: int
   stackLimit: int
-  segments: seq[string]
+  segmentsStr: seq[string]
+  segments: seq[ByteView]
   currentSegment: int
   getCap*: (proc(id: int): CapServer)
 
@@ -27,16 +28,21 @@ proc decreaseLimit(self: Unpacker, size: int) =
   if self.readLimit < 0:
     raise newException(CapnpFormatError, "recursion (read) limit reached")
 
-proc newUnpacker*(segments: seq[string]): Unpacker =
+proc newUnpacker*(segments: seq[string]|seq[ByteView]): Unpacker =
   new(result)
   result.readLimit = bufferLimit
   result.stackLimit = stackLimit
-  result.segments = segments
+  when segments is seq[string]:
+    result.segmentsStr = segments
+    for i in 0..<segments.len:
+      result.segments[i] = result.segmentsStr[i].stringView
+  else:
+    result.segments = segments
   result.currentSegment = 0
   result.getCap = proc(id: int): CapServer =
                       raise newException(Exception, "this unpacker doesn't support capabilities")
 
-proc buffer*(self: Unpacker): var string {.inline.} =
+proc buffer*(self: Unpacker): ByteView {.inline.} =
   self.segments[self.currentSegment]
 
 proc parseMultiSegment(buffer: string): seq[string] =
@@ -168,7 +174,7 @@ proc unpackScalarList[T, Target](self: Unpacker, typ: typedesc[T], target: typed
 
   when Target is seq:
     target = newSeq[T](itemNumber)
-  else:
+  elif Target is string:
     when not (T is byte): {.error: "bad T for string result".}
     target = newString(itemNumber)
 
@@ -180,9 +186,11 @@ proc unpackScalarList[T, Target](self: Unpacker, typ: typedesc[T], target: typed
   if bodyOffset < 0 or listSize < 0 or bodyOffset > self.buffer.len or bodyOffset + listSize > self.buffer.len:
     raise newException(CapnpFormatError, "index error")
 
-  var buffer = self.buffer
-  copyMem(addr target[0],
-          addr buffer[bodyOffset], listSize)
+  when Target is ByteView:
+    target = self.buffer.slice(bodyOffset, listSize)
+  else:
+    copyMem(addr target[0],
+            addr self.buffer[bodyOffset], listSize)
 
   deferRestoreStackLimit
   self.decreaseLimit(listSize)
@@ -232,7 +240,10 @@ proc unpackListImpl[T, Target](self: Unpacker, bodyOffset: int, tag: uint64, typ
   if typeTag == 2:
     return unpackInterSegment(self, tag, Target)
   if tag == 0:
-    return nil
+    when Target is ByteView:
+      return emptyView[byte]()
+    else:
+      return nil
 
   if typeTag != 1:
     raise newException(CapnpFormatError, "expected list, found " & $typeTag)
@@ -256,7 +267,10 @@ proc unpackList*[T](self: Unpacker, bodyOffset: int, tag: uint64, target: typede
   return self.unpackListImpl(bodyOffset, tag, T, seq[T])
 
 proc unpackList*(self: Unpacker, bodyOffset: int, tag: uint64, target: typedesc[string]): string =
-  return self.unpackListImpl(bodyOffset, tag, byte, string)
+  return self.unpackListImpl(bodyOffset, tag, byte, target)
+
+proc unpackList*(self: Unpacker, bodyOffset: int, tag: uint64, target: typedesc[ByteView]): ByteView =
+  return self.unpackListImpl(bodyOffset, tag, byte, target)
 
 proc parseStruct(self: Unpacker, pointer: uint64): tuple[offset: int, dataLength: int, pointerCount: int] =
   let typ = extractBits(pointer, 0, bits=2)
@@ -307,7 +321,7 @@ proc unpackCap[T](self: Unpacker, bodyOffset: int, tag: int, typ: typedesc[T]): 
 proc unpackPointer*[T](self: Unpacker, bodyOffset: int, tag: uint64, typ: typedesc[T]): T =
   mixin createFromCap
 
-  when typ is seq or typ is string:
+  when typ is seq or typ is string or typ is ByteView:
     return unpackList(self, bodyOffset, tag, typ)
   elif T is CapServer or T is SomeInterface:
     # compiles(createFromCap(T, CapServer(Interface())))
