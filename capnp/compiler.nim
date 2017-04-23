@@ -270,7 +270,7 @@ proc generateInterface(self: Generator, name: string, node: Node) =
                                    makeParams(m.paramStructType),
                                    makeResult(m.resultStructType)]
 
-  helpers &= "\Lproc getIntefaceId*(t: typedesc[$1]): uint64 = return $2'u64\L" % [name.quoteId, $node.id]
+  helpers &= "\Lproc getInterfaceId*(t: typedesc[$1]): uint64 = return $2'u64\L" % [name.quoteId, $node.id]
 
   # Call method by ID + AnyPointer args on existing interface object
   helpers &= """

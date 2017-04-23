@@ -16,3 +16,9 @@ template miscCapMethods*(typ, typWrapper) =
 
   proc createFromCap*[T: typ](cap: typedesc[T], obj: CapServer): T =
     return createCallWrapper(T, obj).asInterface(T)
+
+  proc castAs*[T](self: typ, ty: typedesc[T]): T =
+    self.toAnyPointer.castAs(T)
+
+  converter toCapServer*[T: NullCapT](x: T): typ =
+    return createFromCap(typ, nullCap)

@@ -50,13 +50,17 @@ type GenericCapServer*[T] = ref object of RootObj
 
 proc call*[T](self: GenericCapServer[T], ifaceId: uint64, methodId: uint64, args: AnyPointer): Future[AnyPointer] =
   mixin capCall, getInterfaceId
-  #if getInterfaceId(T) != ifaceId:
-  #  return now(error(AnyPointer, "calling invalid interface"))
+  if getInterfaceId(T) != ifaceId:
+    return now(error(AnyPointer, "calling invalid interface"))
 
   return capCall(self.obj, methodId, args)
 
 proc toGenericCapServer*[T](obj: T): CapServer =
   return GenericCapServer[T](obj: obj).asCapServer
+
+template capServerImpl*(impl, iface) =
+  proc toCapServer(self: impl): CapServer = return toGenericCapServer(self.asInterface(iface))
+
 
 # NothingImplemented
 
@@ -71,13 +75,20 @@ let nothingImplemented* = inlineCap(CapServer, CapServerInlineImpl(
              return now(error(AnyPointer, "not implemented")))
 ))
 
-let nullCap* = inlineCap(CapServer, CapServerInlineImpl(
-  call: (proc(ifaceId: uint64, methodId: uint64, args: AnyPointer): Future[AnyPointer] =
-             return now(error(AnyPointer, "null capability called")))
-))
+type NullCapT* = ref object of RootObj
+
+let nullCap* = NullCapT()
+
+proc call*(self: NullCapT, ifaceId: uint64, methodId: uint64, args: AnyPointer): Future[AnyPointer] =
+  return now(error(AnyPointer, "null capability called"))
+
+let nullCapInterface = NullCapT().asCapServer
+
+converter toCapServer*(x: NullCapT): CapServer =
+  return nullCapInterface
 
 proc isNullCap*(cap: CapServer): bool =
-  return cap.Interface.obj == nullCap.Interface.obj and cap.Interface.vtable == nullCap.Interface.vtable
+  return cap.Interface.obj == nullCapInterface.Interface.obj and cap.Interface.vtable == nullCapInterface.Interface.vtable
 
 proc testCopy*[T](t: T) =
   ## Test if ``t`` serializes and unserialized correctly. Useful for debugging capnp.nim.

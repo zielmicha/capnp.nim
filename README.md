@@ -36,3 +36,8 @@ let p: Person = newUnpackerFlat(packed).unpackStruct(0, Person)
 let packed2 = packStruct(p)
 ```
 
+### Debugging options
+
+Define the following symbols during compilation (e.g `-d:caprpcTraceMessages`):
+
+  * `caprpcTraceMessages` - print all messages sent by RPC system
