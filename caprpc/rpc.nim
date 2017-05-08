@@ -257,7 +257,12 @@ proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
   when defined(caprpcTraceMessages):
     echo "creating new connection"
 
-  rpcConn.start.ignore() # TODO: close connection on error
+  # TODO: close connection on error
+  rpcConn.start().onSuccessOrError(
+    proc(r: Result[void]) =
+      echo "RPC connection closed ", r
+      GC_fullCollect() # TODO
+  )
   return rpcConn
 
 proc initConnection*(self: RpcSystem, vatId: VatId) =

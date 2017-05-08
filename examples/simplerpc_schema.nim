@@ -34,7 +34,7 @@ interfaceMethods SimpleRpc:
   identity(a: int64): Future[int64]
   dup(a: int64): Future[SimpleRpc_dup_Result]
 
-proc getIntefaceId*(t: typedesc[SimpleRpc]): uint64 = return 9832355072165603449'u64
+proc getInterfaceId*(t: typedesc[SimpleRpc]): uint64 = return 9832355072165603449'u64
 
 miscCapMethods(SimpleRpc, SimpleRpc_CallWrapper)
 

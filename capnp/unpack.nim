@@ -11,6 +11,7 @@ type Unpacker* = ref object
   stackLimit: int
   segments: seq[string]
   currentSegment: int
+  customUnpacker*: bool
   getCap*: (proc(id: int): CapServer)
 
 proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: int, dataLength: int, pointerCount: int]
@@ -122,7 +123,7 @@ proc unpackPointerList[T](self: Unpacker, typ: typedesc[T], target: typedesc[seq
 
   let listSize = itemNumber * 8
 
-  if bodyOffset < 0 or listSize < 0 or bodyOffset >= self.buffer.len or bodyOffset + listSize > self.buffer.len:
+  if bodyOffset < 0:
     raise newException(CapnpFormatError, "index error")
 
   deferRestoreStackLimit
@@ -193,10 +194,7 @@ proc unpackCompositeList[T](self: Unpacker, typ: typedesc[T], bodyOffset: int, i
   if itemCount > bufferLimit or itemSize > bufferLimit:
     raise newException(CapnpFormatError, "composite list too big")
 
-  if itemSize == 0:
-    raise newException(CapnpFormatError, "empty composite list")
-
-  if itemSize * itemCount != wordCount * 8 or ((wordCount * 8 div itemSize) != itemCount):
+  if itemSize * itemCount != wordCount * 8 or (itemSize != 0 and ((wordCount * 8 div itemSize) != itemCount)):
     raise newException(CapnpFormatError, "composite list size mismatch")
 
   if bodyOffset + 8 + itemSize * itemCount > self.buffer.len:
@@ -296,7 +294,6 @@ proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
 
   let kind = extractBits(pointer, 3, bits=29)
   if kind != 0:
-    echo pointer, " ", kind
     raise newException(CapnpFormatError, "found unknown 'other' pointer")
 
   let capId = extractBits(pointer, 32, bits=32)

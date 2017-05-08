@@ -69,7 +69,7 @@ interfaceMethods Calculator:
   defFunction(paramCount: int32, body: Calculator_Expression): Future[Calculator_Function]
   getOperator(op: Calculator_Operator): Future[Calculator_Function]
 
-proc getIntefaceId*(t: typedesc[Calculator]): uint64 = return 10923537602090224694'u64
+proc getInterfaceId*(t: typedesc[Calculator]): uint64 = return 10923537602090224694'u64
 
 miscCapMethods(Calculator, Calculator_CallWrapper)
 
@@ -112,7 +112,7 @@ interfaceMethods Calculator_Value:
   toCapServer(): CapServer
   read(): Future[float64]
 
-proc getIntefaceId*(t: typedesc[Calculator_Value]): uint64 = return 14116142932258867410'u64
+proc getInterfaceId*(t: typedesc[Calculator_Value]): uint64 = return 14116142932258867410'u64
 
 miscCapMethods(Calculator_Value, Calculator_Value_CallWrapper)
 
@@ -137,7 +137,7 @@ interfaceMethods Calculator_Function:
   toCapServer(): CapServer
   call(params: seq[float64]): Future[float64]
 
-proc getIntefaceId*(t: typedesc[Calculator_Function]): uint64 = return 17143016017778443156'u64
+proc getInterfaceId*(t: typedesc[Calculator_Function]): uint64 = return 17143016017778443156'u64
 
 miscCapMethods(Calculator_Function, Calculator_Function_CallWrapper)
 

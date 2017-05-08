@@ -270,6 +270,15 @@ proc generateInterface(self: Generator, name: string, node: Node) =
                                    makeParams(m.paramStructType),
                                    makeResult(m.resultStructType)]
 
+  helpers &= "\L"
+  # calls on Future[T], these should be zero-roundtrip (but aren't)
+  for m in node.methods:
+    helpers &= "proc $2*(selfFut: Future[$1], $3): Future[$4] =\L" % [name, m.name.quoteId,
+                                                                  makeParams(m.paramStructType),
+                                                                  makeResult(m.resultStructType)]
+    let params = self.nodes[m.paramStructType].fields.map(x => (x.name.quoteId)).toSeq.join(", ")
+    helpers &= "  return selfFut.then((selfV) => selfV.$1($2))\L" % [m.name, params]
+
   helpers &= "\Lproc getInterfaceId*(t: typedesc[$1]): uint64 = return $2'u64\L" % [name.quoteId, $node.id]
 
   # Call method by ID + AnyPointer args on existing interface object
@@ -302,6 +311,7 @@ proc capCall*[T: $1](cap: T, id: uint64, args: AnyPointer): Future[AnyPointer] =
   for methodId, m in node.methods:
     let mname = name & "_" & m.name
 
+    helpers &= "\Lproc getMethodId*(t: typedesc[$1_$2_Params]): uint64 = $3'u64\L" % [name, m.name.quoteId, $(methodId)]
     helpers &= "\Lproc $1*[T: $2_CallWrapper](self: T, $3): Future[$4] =\L" % [
       m.name.quoteId,
       name,

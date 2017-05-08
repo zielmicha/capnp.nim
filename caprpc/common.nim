@@ -1,6 +1,7 @@
 import collections/iface, collections, collections/pprint
 import caprpc/rpcschema, capnp
 import reactor
+import macros
 
 type
   VatNetwork* = distinct Interface
@@ -38,7 +39,10 @@ proc toAnyPointerFuture*[T](f: Future[T]): Future[AnyPointer] =
   return f.then(x => x.toAnyPointer)
 
 proc castAs*[T](f: Future[AnyPointer], ty: typedesc[T]): Future[T] =
-  return f.then(proc(x: AnyPointer): T = castAs(x, T))
+  return f.then(proc(x: AnyPointer): Future[T] = catchError(castAs(x, T)))
+
+proc castAs*[T](f: CapServer, ty: typedesc[T]): T =
+  return f.toAnyPointer.castAs(T)
 
 proc createFromCap*(t: typedesc[CapServer], cap: CapServer): CapServer =
   return cap
@@ -58,9 +62,45 @@ proc call*[T](self: GenericCapServer[T], ifaceId: uint64, methodId: uint64, args
 proc toGenericCapServer*[T](obj: T): CapServer =
   return GenericCapServer[T](obj: obj).asCapServer
 
-template capServerImpl*(impl, iface) =
-  proc toCapServer(self: impl): CapServer = return toGenericCapServer(self.asInterface(iface))
+# capServerImpl
 
+macro capServerImpl*(impl, ifaces): untyped =
+  var ifaces = ifaces
+  let implName = impl.repr
+
+  if ifaces.kind != nnkBracket:
+    ifaces = newNimNode(nnkBracket).add(ifaces)
+
+  let GenericCapServer = genSym(nskType, "GenericCapServer_" & ($impl))
+  let ifaceIdSym = genSym(nskParam, "ifaceId")
+  let selfSym = genSym(nskParam, "self")
+  let methodIdSym = genSym(nskParam, "methodId")
+  let argsSym = genSym(nskParam, "args")
+
+  let callFunc = quote do:
+    proc call*(`selfSym`: `GenericCapServer`, `ifaceIdSym`: uint64, `methodIdSym`: uint64, `argsSym`: AnyPointer): Future[AnyPointer] =
+      discard
+
+  for iface in ifaces:
+    callFunc[0].body.add(quote do:
+      if getInterfaceId(`iface`) == `ifaceIdSym`:
+        return capCall(`selfSym`.obj.asInterface(`iface`), `methodIdSym`, `argsSym`))
+
+  callFunc[0].body.add(quote do:
+    return now(error(AnyPointer, "object $1 does not implement this interface ($2)" % [`implName`, $`ifaceIdSym`])))
+
+  let body = quote do:
+    type `GenericCapServer` = ref object of RootObj
+      obj: `impl`
+
+    proc toCapServer*(obj: `impl`): CapServer
+
+    `callFunc`
+
+    proc toCapServer(obj: `impl`): CapServer =
+      return `GenericCapServer`(obj: obj).asCapServer
+
+  return body
 
 # NothingImplemented
 
@@ -70,10 +110,14 @@ proc inlineCap*[T, R](ty: typedesc[T], impl: R): T =
     impl.toCapServer = (proc(): CapServer = return toGenericCapServer(implIface))
   return implIface
 
+# nothingImplemented
+
 let nothingImplemented* = inlineCap(CapServer, CapServerInlineImpl(
   call: (proc(ifaceId: uint64, methodId: uint64, args: AnyPointer): Future[AnyPointer] =
              return now(error(AnyPointer, "not implemented")))
 ))
+
+# null cap
 
 type NullCapT* = ref object of RootObj
 
@@ -89,6 +133,45 @@ converter toCapServer*(x: NullCapT): CapServer =
 
 proc isNullCap*(cap: CapServer): bool =
   return cap.Interface.obj == nullCapInterface.Interface.obj and cap.Interface.vtable == nullCapInterface.Interface.vtable
+
+# injectCap
+
+proc injectInterface*(default: CapServer, interfaces: seq[uint64], joinWith: CapServer): CapServer =
+  return inlineCap(CapServer,
+                   CapServerInlineImpl(call: proc(ifaceId: uint64, methodId: uint64, args: AnyPointer): Future[AnyPointer] =
+                                                 if ifaceId in interfaces:
+                                                   return joinWith.call(ifaceId, methodId, args)
+                                                 else:
+                                                   return default.call(ifaceId, methodId, args)))
+
+proc injectInterface*(default: CapServer, interfaceT: typedesc, joinWith: CapServer): CapServer =
+  mixin getInterfaceId
+  return injectInterface(default, @[getInterfaceId(interfaceT)], joinWith)
+
+proc injectInterface*[T](default: T, interfaceT: typedesc, joinWith: CapServer): T =
+  mixin getInterfaceId, toCapServer, castAs
+  return injectInterface(default.toCapServer, @[getInterfaceId(interfaceT)], joinWith).castAs(T)
+
+# restrictInterfaces
+
+proc restrictInterfaces*(self: CapServer, interfaces: seq[uint64]): CapServer =
+  return inlineCap(CapServer,
+                   CapServerInlineImpl(call: proc(ifaceId: uint64, methodId: uint64, args: AnyPointer): Future[AnyPointer] =
+                                                 if ifaceId in interfaces:
+                                                   return self.call(ifaceId, methodId, args)
+                                                 else:
+                                                   return now(error(AnyPointer, "not implemented"))))
+
+proc restrictInterfaces*(self: CapServer, interfaceT: typedesc): CapServer =
+  mixin getInterfaceId
+  return self.restrictInterfaces(@[getInterfaceId(interfaceT)])
+
+proc restrictInterfaces*[T, R](self: T, interfaceT: typedesc[R]): R =
+  mixin getInterfaceId, toCapServer
+  return self.toCapServer.restrictInterfaces(@[getInterfaceId(interfaceT)]).castAs(R)
+
+
+# testCopy
 
 proc testCopy*[T](t: T) =
   ## Test if ``t`` serializes and unserialized correctly. Useful for debugging capnp.nim.

@@ -15,6 +15,8 @@ type
       offset: int
     of AnyPointerKind.obj:
       typeIndex: int
+      when not defined(release):
+        typename: string
       getPointerField: proc(index: int): AnyPointer
       pack: proc(p: Packer, offset: int)
       unwrap: proc(dest: pointer)
@@ -31,7 +33,8 @@ proc castAs*[T](selfR: AnyPointer, ty: typedesc[T]): T =
       return unpackPointer(self.unpacker, self.offset, T)
     of AnyPointerKind.obj:
       if getTypeIndex(T) != self.typeIndex:
-        raise newException(Exception, "trying to cast $1 to $2 ($3)" % [$self.typeIndex, $getTypeIndex(T), name(T)])
+        raise newException(Exception, "trying to cast $1 ($4) to $2 ($3)" % [$self.typeIndex, $getTypeIndex(T), name(T),
+                                                                             when defined(release): "?" else: self.typename])
 
       self.unwrap(addr result)
     of AnyPointerKind.cap:
@@ -41,6 +44,12 @@ proc castAs*[T](selfR: AnyPointer, ty: typedesc[T]): T =
         return T.createFromCap(self.capServer)
       else:
         raise newException(Exception, "trying to cast capability to $1" % [name(T)])
+
+proc castAs*(selfR: AnyPointer, ty: typedesc[AnyPointer]): AnyPointer =
+  return selfR
+
+proc toAnyPointer*(t: AnyPointer): AnyPointer =
+  return t
 
 proc toAnyPointer*[T](t: T): AnyPointer =
   when T is CapServer:
@@ -57,6 +66,8 @@ proc toAnyPointer*[T](t: T): AnyPointer =
     self.unwrap = proc(p: pointer) = (cast[ptr T](p))[] = t
     self.pack = proc(p: Packer, offset: int) =
       packPointer(p, offset, t)
+    when not defined(release):
+      self.typename = name(T)
 
     self.getPointerField = proc(index: int): AnyPointer =
       mixin getPointerField
@@ -82,6 +93,7 @@ proc getPointerField*(p: AnyPointer, index: int): AnyPointer =
 
 proc setCapGetter*(p: AnyPointer, r: (proc(id: int): CapServer)) =
   # a bit hacky, assumes one interface getter per unpacker
+  AnyPointerImpl(p).unpacker.customUnpacker = true
   AnyPointerImpl(p).unpacker.getCap = r
 
 proc unpackPointer*(self: Unpacker, offset: int, typ: typedesc[AnyPointer]): AnyPointer =
@@ -214,7 +226,16 @@ proc copyPointer*(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
     doAssert(false) # inter-segment
   elif kind == 3:
     # other pointer
-    pack(dst.buffer, targetOffset, unpack(src.buffer, offset, uint64))
+    if src.customUnpacker:
+      let pkind = extractBits(pointer, 3, bits=29)
+      if pkind != 0:
+        raise newException(CapnpFormatError, "found unknown 'other' pointer")
+
+      let capId = extractBits(pointer, 32, bits=32)
+      let newCapId = dst.capToIndex(src.getCap(capId))
+      pack(dst.buffer, targetOffset, 3 or (newCapId shl 32))
+    else:
+      pack(dst.buffer, targetOffset, unpack(src.buffer, offset, uint64))
 
 proc packNow*(p: AnyPointer, capToIndex: (proc(cap: CapServer): int)): AnyPointer =
   let packer = newPacker()
@@ -222,14 +243,14 @@ proc packNow*(p: AnyPointer, capToIndex: (proc(cap: CapServer): int)): AnyPointe
   packer.packPointer(0, p)
   return unpackPointer(newUnpackerFlat(packer.buffer), 0, AnyPointer)
 
-proc pprint*(selfR: AnyPointer): string =
+proc pprint*[](selfR: AnyPointer): string =
   if selfR == nil:
     return "nil"
 
   let self: AnyPointerImpl = selfR
   case self.kind:
     of AnyPointerKind.unpacker:
-      return "AnyPointer(unpacker)"
+      return "AnyPointer(unpacker, " & packPointer(selfR).encodeHex & ")"
     of AnyPointerKind.obj:
       return "AnyPointer(native)"
     of AnyPointerKind.cap:
