@@ -1,4 +1,4 @@
-## Implements simple two party vat network.
+## Implements a simple two party vat network.
 import capnp, caprpc/common, caprpc/twopartyschema, caprpc/msgstream, reactor, caprpc/rpcschema, caprpc/rpc
 
 export Side

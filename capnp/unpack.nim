@@ -281,6 +281,17 @@ proc unpackStruct[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   self.decreaseLimit(s.pointerCount * 8 + s.dataLength)
   return capnpUnpackStructImpl(self, s.offset, s.dataLength, s.pointerCount, typ)
 
+proc getPointerFieldOffset*(self: Unpacker, offset: int, field: int): int =
+  let pointer = unpack(self.buffer, offset, uint64)
+  if extractBits(pointer, 0, bits=2) == 2:
+    raise newException(ValueError, "intersegment getPointerField not yet supported") # TODO
+
+  let s = parseStruct(self, offset)
+  if field >= s.pointerCount:
+    raise newException(CapnpFormatError, "field doesn't exist")
+
+  return s.offset + field * 8
+
 proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   mixin createFromCap
 

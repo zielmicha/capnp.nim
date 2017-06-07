@@ -85,7 +85,9 @@ proc getPointerField*(p: AnyPointer, index: int): AnyPointer =
 
   case self.kind:
   of AnyPointerKind.unpacker:
-    raise newException(Exception, "unpacker not supported yet") # TODO
+    self.unpacker.currentSegment = self.segment
+    let newOffset = self.unpacker.getPointerFieldOffset(self.offset, index)
+    return AnyPointerImpl(kind: AnyPointerKind.unpacker, unpacker: self.unpacker, segment: self.segment, offset: newOffset)
   of AnyPointerKind.obj:
     return (self.getPointerField)(index)
   of AnyPointerKind.cap:
