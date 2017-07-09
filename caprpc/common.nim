@@ -170,6 +170,28 @@ proc restrictInterfaces*[T, R](self: T, interfaceT: typedesc[R]): R =
   mixin getInterfaceId, toCapServer
   return self.toCapServer.restrictInterfaces(@[getInterfaceId(interfaceT)]).castAs(R)
 
+# gcDestroyingWrapper
+
+type GcDestroyingWrapper = ref object of RootRef
+  wrapped: CapServer
+  destroyCallback: proc()
+
+proc call*(self: GcDestroyingWrapper, ifaceId: uint64, methodId: uint64, args: AnyPointer): Future[AnyPointer] =
+  return self.wrapped.call(ifaceId, methodId, args)
+
+proc gcDestroyingWrapperDestroy(self: GcDestroyingWrapper) =
+  self.destroyCallback()
+
+proc gcDestroyingWrapper*(wrapped: CapServer, destroyCallback: proc()): CapServer =
+  var r: GcDestroyingWrapper
+  new(r, gcDestroyingWrapperDestroy)
+  r.wrapped = wrapped
+  r.destroyCallback = destroyCallback
+  return r.asCapServer
+
+proc gcDestroyingWrapper*[T](cap: T, destroyCallback: proc()): T =
+  mixin toCapServer
+  return gcDestroyingWrapper(cap.toCapServer, destroyCallback).castAs(T)
 
 # testCopy
 

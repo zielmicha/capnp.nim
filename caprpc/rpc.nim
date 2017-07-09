@@ -1,24 +1,24 @@
 ## Implements the core of the RPC mechanism.
-import caprpc/common, caprpc/util, caprpc/rpcschema, tables, collections/weaktable, reactor, capnp, collections/iface, caprpc/util, collections/iterate, collections
+import caprpc/common, caprpc/util, caprpc/rpcschema, tables, collections/weaktable, collections/weakref, reactor, capnp, collections/iface, caprpc/util, collections/iterate, collections, typetraits
 
 type
-  RpcSystem* = ref object of WeakRefable
+  RpcSystem* = ref object
     network: VatNetwork
     myBootstrap: CapServer # my bootstrap interface
-    connections: WeakValueTable[VatId, VatConnection]
+    connections: TableRef[VatId, VatConnection]
 
   QuestionId = uint32
   AnswerId = uint32
   ExportId = uint32
   ImportId = uint32
 
-  VatConnection = ref object of WeakRefable
+  VatConnection = ref object
     system: RpcSystem
     vatConn: Connection
     questions: QuestionTable[QuestionId, Question]
     answers: Table[AnswerId, Answer]
     exports: QuestionTable[ExportId, Export]
-    imports: WeakValueTable[ImportId, RemoteCap]
+    imports: WeakValueTable[ImportId, RemoteCapObj]
 
   Answer = ref object
     result: Future[AnyPointer]
@@ -31,19 +31,21 @@ type
     id: QuestionId
     returnCallback: (proc(ret: Return): Future[void])
 
-  RemoteCap = ref object of WeakRefable # implements CapServer
+  RemoteCapObj = object
     vatConnection: VatConnection
     importId: ImportId
     refCount: int64
 
-proc call(cap: RemoteCap, ifaceId: uint64, methodId: uint64, payload: AnyPointer): Future[AnyPointer]
+  RemoteCap = WeakRefable[RemoteCapObj]
+
+proc call(cap: RemoteCap, ifaceId: uint64, methodId: uint64, payload: AnyPointer): Future[AnyPointer] {.async.}
 proc makePayload(self: VatConnection, payload: AnyPointer): Payload
 
 proc newRpcSystem*(network: VatNetwork, myBootstrap: CapServer=nothingImplemented): RpcSystem =
   return RpcSystem(
     network: network,
     myBootstrap: myBootstrap,
-    connections: newWeakValueTable[VatId, VatConnection]())
+    connections: newTable[VatId, VatConnection]())
 
 proc send(self: VatConnection, msg: Message): Future[void] =
   when defined(caprpcTraceMessages):
@@ -67,27 +69,32 @@ proc newQuestion(self: VatConnection): Question =
 proc catchInternalError[T](f: Future[T], self: VatConnection) =
   f.ignore # TODO
 
-proc releaseCap(cap: RemoteCap) =
+proc releaseCap(cap: ref RemoteCapObj) {.cdecl.} =
   when defined(caprpcTraceLifetime):
     echo "release ", cap.importId
-  cap.vatConnection.send(Message(
-    kind: MessageKind.release,
-    release: Release(
-      referenceCount: cap.refCount.uint32,
-      id: cap.importId
-    )
-  )).catchInternalError(cap.vatConnection)
+
+  proc doRelease() =
+    cap.vatConnection.send(Message(
+      kind: MessageKind.release,
+      release: Release(
+        referenceCount: cap.refCount.uint32,
+        id: cap.importId
+      )
+    )).catchInternalError(cap.vatConnection)
+
+  doRelease()
 
 proc getImportedCap(self: VatConnection, id: ImportId): CapServer =
   var cap: RemoteCap
   if id in self.imports:
     cap = self.imports[id]
   else:
-    cap = self.imports.addKey(id, freeCallback=releaseCap)
-    cap.vatConnection = self
-    cap.importId = id
+    cap = self.imports.addKey(id, (ref RemoteCapObj)(
+      vatConnection: self,
+      importId: id
+    ), freeCallback=releaseCap)
 
-  cap.refCount += 1
+  cap.obj.refCount += 1
   return cap.asCapServer
 
 proc capFromDescriptor(self: VatConnection, descriptor: CapDescriptor): CapServer =
@@ -208,7 +215,7 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
 
     of MessageKind.`return`:
       let questionId = msg.`return`.answerId
-      # if msg.`return`.releaseParamCaps: asyncRaise("releaseParamCaps unsupported") TODO
+      if msg.`return`.releaseParamCaps: echo("releaseParamCaps unsupported") # TODO
       if questionId notin self.questions:
         stderr.writeLine("peer sent return to invalid question")
       else:
@@ -223,7 +230,21 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
     of MessageKind.resolve:
       discard
     of MessageKind.release:
-      discard
+      when defined(caprpcTraceLifetime):
+        stderr.writeLine("remote asks to release " & $msg.release.id)
+
+      if msg.release.id notin self.exports:
+        asyncRaise "bad release export id"
+
+      let exportObj = self.exports[msg.release.id]
+      exportObj.refCount -= msg.release.referenceCount.int64
+      if exportObj.refCount == 0:
+        when defined(caprpcTraceLifetime):
+          let cap = self.exports[msg.release.id].cap
+          stderr.writeLine("releasing export " & $msg.release.id & " refcnt after: " & $(getRefcount(cap.getImpl)-2) &
+                           " cap: " & cap.pprint)
+
+        del self.exports, msg.release.id
     of MessageKind.obsoleteSave:
       discard
     of MessageKind.obsoleteDelete:
@@ -247,12 +268,13 @@ proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
   if vatId in self.connections:
     return self.connections[vatId]
 
-  let rpcConn = self.connections.addKey(vatId)
+  let rpcConn = VatConnection()
+  self.connections[vatId] = rpcConn
   rpcConn.system = self
   rpcConn.vatConn = self.network.connect(vatId)
   rpcConn.questions = initQuestionTable[QuestionId, Question]()
   rpcConn.answers = initTable[AnswerId, Answer]()
-  rpcConn.imports = newWeakValueTable[ImportId, RemoteCap]()
+  rpcConn.imports = newWeakValueTable[ImportId, RemoteCapObj]()
   rpcConn.exports = initQuestionTable[ExportId, Export]()
   when defined(caprpcTraceMessages):
     echo "creating new connection"
@@ -261,7 +283,6 @@ proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
   rpcConn.start().onSuccessOrError(
     proc(r: Result[void]) =
       echo "RPC connection closed ", r
-      GC_fullCollect() # TODO
   )
   return rpcConn
 
@@ -288,9 +309,9 @@ proc exportCap(self: VatConnection, cap: CapServer): CapDescriptor =
   # TODO: no need to always export
   if cap.getImpl of RemoteCap:
     let remoteCap = cap.getImpl.RemoteCap
-    if remoteCap.vatConnection == self:
+    if remoteCap.obj.vatConnection == self:
       # TODO: refcount?
-      return CapDescriptor(kind: CapDescriptorKind.receiverHosted, receiverHosted: remoteCap.importId)
+      return CapDescriptor(kind: CapDescriptorKind.receiverHosted, receiverHosted: remoteCap.obj.importId)
 
   let exportId = self.exports.putNext(Export(refCount: 1, cap: cap))
   return CapDescriptor(kind: CapDescriptorKind.senderHosted, senderHosted: exportId)
@@ -309,9 +330,8 @@ proc makePayload(self: VatConnection, payload: AnyPointer): Payload =
 
 # RemoteCap impl
 
-async:
- proc call(cap: RemoteCap, ifaceId: uint64, methodId: uint64, payload: AnyPointer): Future[AnyPointer] =
-  let conn = cap.vatConnection
+proc call(cap: RemoteCap, ifaceId: uint64, methodId: uint64, payload: AnyPointer): Future[AnyPointer] {.async.} =
+  let conn = cap.obj.vatConnection
   let question = conn.newQuestion()
 
   await conn.send(Message(
@@ -320,7 +340,7 @@ async:
       questionId: question.id,
       interfaceId: ifaceId,
       target: MessageTarget(kind: MessageTargetKind.importedCap,
-                            importedCap: cap.importId),
+                            importedCap: cap.obj.importId),
       methodId: methodId.uint16,
       params: conn.makePayload(payload),
       sendResultsTo: Call_sendResultsTo(kind: Call_sendResultsToKind.caller),

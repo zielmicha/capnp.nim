@@ -55,8 +55,8 @@ get_dep() {
 
 echo "path: \".\"" > nim.cfg
 
-get_dep collections https://github.com/zielmicha/collections.nim 17c4695ae2f75ed1c6634d8b8b8710f827675305 ''
-get_dep reactor https://github.com/zielmicha/reactor.nim 9b46da734709090c0ca65ee0417242ee0e2e1abf ''
+get_dep collections https://github.com/zielmicha/collections.nim ab4ad35f0cab08e01a16cd54a0c16938a18ba10a ''
+get_dep reactor https://github.com/zielmicha/reactor.nim b1875cd2c41f0c284e1e954350a4400a59a606db ''
 
 echo 'debugger: "native"
 
