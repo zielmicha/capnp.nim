@@ -14,6 +14,7 @@ type
 
   VatConnection = ref object
     system: RpcSystem
+    vatId: VatId
     vatConn: Connection
     questions: QuestionTable[QuestionId, Question]
     answers: Table[AnswerId, Answer]
@@ -128,6 +129,10 @@ proc getFutureForQuestion(self: VatConnection, question: Question): Future[AnyPo
   let completer = newCompleter[AnyPointer]()
 
   proc cb(ret: Return): Future[void] {.async.} =
+    if ret == nil:
+      completer.completeError(newException(CaprpcException, "disconnected"))
+      return
+
     case ret.kind:
       of ReturnKind.results:
         completer.complete(self.unpackPayload(ret.results))
@@ -264,6 +269,16 @@ proc start(self: VatConnection) {.async.} =
       echo("\x1B[92mrecv\x1B[0m ", msg.pprint)
     await self.processMessage(msg)
 
+proc cleanup(self: VatConnection) =
+  for k, question in self.questions:
+    question.returnCallback(nil).ignore
+
+  self.system.connections.del self.vatId
+
+  # may help breaking circular references
+  self.exports = initQuestionTable[ExportId, Export]()
+  self.answers = initTable[AnswerId, Answer]()
+
 proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
   if vatId in self.connections:
     return self.connections[vatId]
@@ -271,18 +286,21 @@ proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
   let rpcConn = VatConnection()
   self.connections[vatId] = rpcConn
   rpcConn.system = self
+  rpcConn.vatId = vatId
   rpcConn.vatConn = self.network.connect(vatId)
   rpcConn.questions = initQuestionTable[QuestionId, Question]()
   rpcConn.answers = initTable[AnswerId, Answer]()
   rpcConn.imports = newWeakValueTable[ImportId, RemoteCapObj]()
   rpcConn.exports = initQuestionTable[ExportId, Export]()
   when defined(caprpcTraceMessages):
-    echo "creating new connection"
+    stderr.writeLine "creating new connection"
 
   # TODO: close connection on error
   rpcConn.start().onSuccessOrError(
     proc(r: Result[void]) =
-      echo "RPC connection closed ", r
+      when defined(caprpcTraceMessages):
+        stderr.writeLine "RPC connection closed " & ($r)
+      rpcConn.cleanup
   )
   return rpcConn
 

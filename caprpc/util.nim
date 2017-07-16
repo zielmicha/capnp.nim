@@ -15,6 +15,10 @@ proc initQuestionTable*[K, V](): QuestionTable[K, V] =
 proc init*[K, V](self: var QuestionTable[K, V]) =
   self = initQuestionTable[K, V]()
 
+iterator pairs*[K, V](self: QuestionTable[K, V]): tuple[k: K, v: V] =
+  for k, v in self.t.pairs:
+    yield (k, v)
+
 proc contains*[K, V](self: QuestionTable[K, V], k: K): bool =
   return k in self.t
 

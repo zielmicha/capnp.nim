@@ -263,9 +263,13 @@ proc generateInterface(self: Generator, name: string, node: Node) =
     else:
       return self.type2nim(Type(kind: TypeKind.struct, struct_typeId: typ))
 
+  var forwardDecl = "template forwardDecl*(iftype: typedesc[$1], self, impltype): untyped {.dirty.} =\L" % name
   var helpers = "interfaceMethods " & name & ":\L"
   helpers &= "  toCapServer(): CapServer\L"
   for m in node.methods:
+    forwardDecl &= "  proc $1(self: impltype, $2): Future[$3] {.async.}\L" % [m.name.quoteId,
+                                                            makeParams(m.paramStructType),
+                                                            makeResult(m.resultStructType)]
     helpers &= "  $1($2): Future[$3]\L" % [m.name.quoteId,
                                    makeParams(m.paramStructType),
                                    makeResult(m.resultStructType)]
@@ -280,6 +284,9 @@ proc generateInterface(self: Generator, name: string, node: Node) =
     helpers &= "  return selfFut.then((selfV) => selfV.$1($2))\L" % [m.name, params]
 
   helpers &= "\Lproc getInterfaceId*(t: typedesc[$1]): uint64 = return $2'u64\L" % [name.quoteId, $node.id]
+
+  if node.methods.len > 0:
+    helpers &= "\L" & forwardDecl
 
   # Call method by ID + AnyPointer args on existing interface object
   helpers &= """
