@@ -14,6 +14,7 @@ type
 
   VatConnection = ref object
     system: RpcSystem
+    connected: bool
     vatId: VatId
     vatConn: Connection
     questions: QuestionTable[QuestionId, Question]
@@ -51,8 +52,8 @@ proc newRpcSystem*(network: VatNetwork, myBootstrap: CapServer=nothingImplemente
 proc send(self: VatConnection, msg: Message): Future[void] =
   when defined(caprpcTraceMessages):
     when defined(caprpcShowSendTrace):
-      echo(getStackTrace())
-    echo("\x1B[91msend\x1B[0m ", msg.pprint)
+      stderr.writeLine(getStackTrace())
+    stderr.writeLine("\x1B[91msend\x1B[0m ", msg.pprint)
   return self.vatConn.output.send(msg)
 
 proc finishQuestion(self: VatConnection, questionId: QuestionId): Future[void] {.async.} =
@@ -70,9 +71,12 @@ proc newQuestion(self: VatConnection): Question =
 proc catchInternalError[T](f: Future[T], self: VatConnection) =
   f.ignore # TODO
 
-proc releaseCap(cap: ref RemoteCapObj) {.cdecl.} =
+proc traceLifetime(args: varargs[string, `$`]) =
   when defined(caprpcTraceLifetime):
-    echo "release ", cap.importId
+    stderr.writeLine(args)
+
+proc releaseCap(cap: ref RemoteCapObj) {.cdecl.} =
+  traceLifetime("release ", cap.importId)
 
   proc doRelease() =
     cap.vatConnection.send(Message(
@@ -220,7 +224,7 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
 
     of MessageKind.`return`:
       let questionId = msg.`return`.answerId
-      if msg.`return`.releaseParamCaps: echo("releaseParamCaps unsupported") # TODO
+      if msg.`return`.releaseParamCaps: stderr.writeLine("releaseParamCaps unsupported") # TODO
       if questionId notin self.questions:
         stderr.writeLine("peer sent return to invalid question")
       else:
@@ -235,8 +239,7 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
     of MessageKind.resolve:
       discard
     of MessageKind.release:
-      when defined(caprpcTraceLifetime):
-        stderr.writeLine("remote asks to release " & $msg.release.id)
+      traceLifetime("remote asks to release " & $msg.release.id)
 
       if msg.release.id notin self.exports:
         asyncRaise "bad release export id"
@@ -266,10 +269,12 @@ proc processMessage(self: VatConnection, msg: Message) {.async.} =
 proc start(self: VatConnection) {.async.} =
   asyncFor msg in self.vatConn.input:
     when defined(caprpcTraceMessages):
-      echo("\x1B[92mrecv\x1B[0m ", msg.pprint)
+      stderr.writeLine("\x1B[92mrecv\x1B[0m ", msg.pprint)
     await self.processMessage(msg)
 
 proc cleanup(self: VatConnection) =
+  self.connected = false
+
   for k, question in self.questions:
     question.returnCallback(nil).ignore
 
@@ -285,6 +290,7 @@ proc getConnection(self: RpcSystem, vatId: VatId): VatConnection =
 
   let rpcConn = VatConnection()
   self.connections[vatId] = rpcConn
+  rpcConn.connected = true
   rpcConn.system = self
   rpcConn.vatId = vatId
   rpcConn.vatConn = self.network.connect(vatId)
@@ -350,6 +356,10 @@ proc makePayload(self: VatConnection, payload: AnyPointer): Payload =
 
 proc call(cap: RemoteCap, ifaceId: uint64, methodId: uint64, payload: AnyPointer): Future[AnyPointer] {.async.} =
   let conn = cap.obj.vatConnection
+
+  if not conn.connected:
+    asyncRaise "object doesn't exist anymore (not connected)"
+
   let question = conn.newQuestion()
 
   await conn.send(Message(
