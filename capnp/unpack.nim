@@ -274,7 +274,7 @@ proc unpackStruct[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   let pointer = unpack(self.buffer, offset, uint64)
   if extractBits(pointer, 0, bits=2) == 2:
     return unpackInterSegment(self, pointer, T)
-  
+
   mixin capnpUnpackStructImpl
   let s = parseStruct(self, offset)
   deferRestoreStackLimit

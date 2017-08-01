@@ -64,15 +64,31 @@ proc compressCapnp*(a: string): string =
 
     result[tagPos] = pack(uint8(tag))[0]
     if tag == 0xFF:
-      result.add('\x00')
+      i += 1
+      var verbatimWords = 0
+      while verbatimWords < 254 and i + verbatimWords < wordCount:
+        var j = i + verbatimWords
+        var zeroCount = 0
+        for k in 0..<7:
+          if a[j*8 + k] == '\0': zeroCount += 1
 
-    if tag == 0x00:
+        if zeroCount > 1:
+          break
+        else:
+          verbatimWords += 1
+
+      result.add(pack(uint8(verbatimWords)))
+      result.add(a[i*8..<(i+verbatimWords)*8])
+      i += verbatimWords
+
+    elif tag == 0x00:
       var cnt = 0
-      while i+1 < wordCount and unpack(a, (i+1)*8, uint64) == 0:
+      while i+1 < wordCount and unpack(a, (i+1)*8, uint64) == 0 and cnt < 255:
         i += 1
         cnt += 1
       result.add(pack(uint8(cnt)))
-
-    i += 1
+      i += 1
+    else:
+      i += 1
 
   #result = "\xFF" & a[0..<8] & pack(uint8(a.len div 8 - 1)) & a[8..^1]

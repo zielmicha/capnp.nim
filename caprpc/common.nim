@@ -1,7 +1,6 @@
 import collections/iface, collections, collections/pprint
 import caprpc/rpcschema, capnp
-import reactor
-import macros
+import reactor, macros, typetraits
 
 type
   VatNetwork* = distinct Interface
@@ -55,7 +54,7 @@ type GenericCapServer*[T] = ref object of RootObj
 proc call*[T](self: GenericCapServer[T], ifaceId: uint64, methodId: uint64, args: AnyPointer): Future[AnyPointer] =
   mixin capCall, getInterfaceId
   if getInterfaceId(T) != ifaceId:
-    return now(error(AnyPointer, "calling invalid interface"))
+    return now(error(AnyPointer, "calling invalid interface %1 on %2" % [$ifaceId, name(T)]))
 
   return capCall(self.obj, methodId, args)
 
