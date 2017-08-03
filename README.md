@@ -1,7 +1,11 @@
 # capnp.nim
 Cap'n Proto bindings for Nim
 
-capnp.nim is a Nim implementation of Cap'n Proto serialization scheme. Serialization/deserialization is work in progress, but most thing are implemented (see [TODO.md](TODO.md)). The RPC features are currently in works.
+capnp.nim is a Nim implementation of Cap'n Proto serialization scheme and RPC protocol.
+
+The serialization layer is production ready. The RPC layers is also fairly well tested, enough to be useful, but not the whole protocol is implemented.
+
+The main user of this library is [MetaContainer](https://github.com/zielmicha/metac).
 
 ## Installing
 
@@ -41,3 +45,5 @@ let packed2 = packStruct(p)
 Define the following symbols during compilation (e.g `-d:caprpcTraceMessages`):
 
   * `caprpcTraceMessages` - print all messages sent by RPC system
+  * `caprpcTraceLifetime` - print info about `release` messages, useful while debugging cross-machine leaks
+  * `caprpcPrintExceptions` - print exceptions raised inside called methods (server)
