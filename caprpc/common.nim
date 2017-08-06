@@ -131,7 +131,11 @@ converter toCapServer*(x: NullCapT): CapServer =
   return nullCapInterface
 
 proc isNullCap*(cap: CapServer): bool =
-  return cap.Interface.obj == nullCapInterface.Interface.obj and cap.Interface.vtable == nullCapInterface.Interface.vtable
+  return cap.isNil or (cap.Interface.obj == nullCapInterface.Interface.obj and cap.Interface.vtable == nullCapInterface.Interface.vtable)
+
+proc isNullCap*[T](cap: T): bool =
+  mixin toCapServer
+  return cap.isNil or cap.toCapServer.isNullCap
 
 # injectCap
 
