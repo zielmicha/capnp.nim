@@ -75,7 +75,10 @@ proc unpackScalar*(self: Unpacker, offset: int, typ: typedesc[float64], defaultV
   return cast[float64](unpackScalar(self, offset, uint64, cast[uint64](defaultValue)))
 
 proc unpackScalar*[T: enum](self: Unpacker, offset: int, typ: typedesc[T], defaultValue: T=T.low): T =
-  return self.unpackScalar(offset, uint16, defaultValue.uint16).T
+  let val = self.unpackScalar(offset, uint16, defaultValue.uint16)
+  if val < low(T).uint16 or val > high(T).uint16:
+    raise newException(CapnpFormatError, "value out of range")
+  return val.T
 
 proc unpackBool*(self: Unpacker, baseOffset: int, bitOffset: int, defaultValue: bool): bool =
   let offset = baseOffset + bitOffset div 8
@@ -101,11 +104,18 @@ proc unpackInterSegment[T](self: Unpacker, pointer: uint64, typ: typedesc[T]): T
   let newSegment = extractBits(pointer, 32, bits=32)
   let oldSegment = self.currentSegment
 
+  if newSegment >= self.segments.len or newSegment < 0:
+    raise newException(CapnpFormatError, "invalid intersegment pointer target segment")
+
   self.currentSegment = newSegment
   defer: self.currentSegment = oldSegment
 
   if oneWord:
     mixin unpackPointer
+
+    if offset >= self.buffer.len or offset < 0:
+      raise newException(CapnpFormatError, "invalid intersegment pointer")
+
     return unpackPointer(self, offset, typ)
   else:
     raise newException(CapnpFormatError, "two-word pointers not implemented")

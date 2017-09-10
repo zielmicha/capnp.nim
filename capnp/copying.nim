@@ -152,6 +152,9 @@ proc copyList(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
 
   assert dst.buffer.len mod 8 == 0
 
+  if bodyOffset < 0 or bodyOffset > src.buffer.len:
+    raise newException(CapnpFormatError, "invalid offset")
+
   case itemSizeTag:
   of {1,2,3,4,5}:
     var dataSize: int
@@ -162,12 +165,13 @@ proc copyList(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
     of 3: dataSize = itemNumber * 2
     of 4: dataSize = itemNumber * 4
     of 5: dataSize = itemNumber * 8
-    else: doAssert(false)
+    else: raise newException(CapnpFormatError, "invalid size tag")
 
     if dataSize > src.buffer.len - bodyOffset:
       raise newException(CapnpFormatError, "index error")
 
     src.decreaseLimit(dataSize)
+    #echo offset, " -> ", targetOffset, " copyarray ", dst.buffer.len, " " , bodyOffset, " ", dataSize
     dst.buffer &= src.buffer[bodyOffset..<bodyOffset + dataSize]
     dst.buffer.padWords
   of 6:
@@ -189,6 +193,9 @@ proc copyList(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
     let itemCount = info.offset
     let itemSize = (info.dataLength + 8 * info.pointerCount)
 
+    if itemSize < 0 or itemCount < 0:
+      raise newException(CapnpFormatError, "invalid item size")
+
     src.decreaseLimit(itemSize)
     src.decreaseLimit(itemCount)
     src.decreaseLimit(itemSize * itemCount)
@@ -204,7 +211,8 @@ proc copyList(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
       copyStructInner(src, (itemOffset, info.dataLength, info.pointerCount),
                       dst, targetBodyOffset + 8 + itemSize * i)
 
-  else: doAssert(false)
+  else:
+    raise newException(CapnpFormatError, "invalid list type")
 
   let relTargetBodyOffset = targetBodyOffset - targetOffset - 8
   pack(dst.buffer, targetOffset,
@@ -225,7 +233,7 @@ proc copyPointer*(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
   elif kind == 1:
     copyList(src, offset, dst, targetOffset)
   elif kind == 2:
-    doAssert(false) # inter-segment
+    raise newException(CapnpFormatError, "inter-segment pointers not supported for copying")
   elif kind == 3:
     # other pointer
     if src.customUnpacker:

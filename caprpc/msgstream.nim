@@ -23,6 +23,8 @@ proc readSegments*(stream: Input[byte]): Future[string] {.async.} =
     raise newException(CapnpFormatError, "message too long")
 
   s &= await stream.read(dataLength)
+  when defined(caprpcPrintMessages):
+    echo "message ", s.encodeHex
   return s
 
 proc wrapByteInput*[T](stream: Input[byte], t: typedesc[T]): Input[T] {.asynciterator.} =

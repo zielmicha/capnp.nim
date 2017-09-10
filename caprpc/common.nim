@@ -37,8 +37,8 @@ interfaceMethods CapServer:
 proc toAnyPointerFuture*[T](f: Future[T]): Future[AnyPointer] =
   return f.then(x => x.toAnyPointer)
 
-proc castAs*[T](f: Future[AnyPointer], ty: typedesc[T]): Future[T] =
-  return f.then(proc(x: AnyPointer): Future[T] = catchError(castAs(x, T)))
+proc castAs*[R, T](f: Future[R], ty: typedesc[T]): Future[T] =
+  return f.then(proc(x: R): Future[T] = catchError(castAs(x, T)))
 
 proc castAs*[T](f: CapServer, ty: typedesc[T]): T =
   return f.toAnyPointer.castAs(T)

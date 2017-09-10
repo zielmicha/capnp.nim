@@ -33,6 +33,7 @@ proc pack*[T](v: var string, offset: int, value: T, endian=littleEndian) {.inlin
   let minLength = offset + sizeof(T)
   if minLength > v.len:
     raise newException(CapnpFormatError, "bad offset")
+
   convertEndian(sizeof(T), addr v[offset], unsafeAddr value)
 
 proc pack*[T](value: T, endian=littleEndian): string {.inline.} =
@@ -43,6 +44,7 @@ proc pack*[T](value: T, endian=littleEndian): string {.inline.} =
 proc unpack*[T](v: string, offset: int, t: typedesc[T], endian=littleEndian): T {.inline.} =
   if not (offset < v.len and offset + sizeof(t) <= v.len and offset >= 0):
     raise newException(CapnpFormatError, "bad offset (offset=$1 len=$2)" % [$offset, $v.len])
+
   convertEndian(sizeof(T), addr result, unsafeAddr v[offset])
 
 proc extractBits*(v: uint64|uint32|uint16|uint8, k: Natural, bits: int): int {.inline.} =
