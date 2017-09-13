@@ -12,7 +12,7 @@ type Unpacker* = ref object
   segments: seq[string]
   currentSegment: int
   customUnpacker*: bool
-  getCap*: (proc(id: int): CapServer)
+  getCap*: (proc(val: RawCapValue): CapServer)
 
 proc parseStruct*(self: Unpacker, offset: int, parseOffset=true): tuple[offset: int, dataLength: int, pointerCount: int]
 
@@ -34,8 +34,8 @@ proc newUnpacker*(segments: seq[string]): Unpacker =
   result.stackLimit = stackLimit
   result.segments = segments
   result.currentSegment = 0
-  result.getCap = proc(id: int): CapServer =
-                      raise newException(Exception, "this unpacker doesn't support capabilities")
+  result.getCap = proc(val: RawCapValue): CapServer =
+                      raise newException(CapnpFormatError, "this unpacker doesn't support capabilities")
 
 proc buffer*(self: Unpacker): string {.inline.} =
   self.segments[self.currentSegment]
@@ -308,7 +308,7 @@ proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   let pointer = unpack(self.buffer, offset, uint64)
 
   if pointer == 0:
-    return createFromCap(T, self.getCap(-1))
+    return createFromCap(T, self.getCap(RawCapValue(number: -1)))
 
   if extractBits(pointer, 0, bits=2) != 3:
     raise newException(CapnpFormatError, "expected capability, found something else ($1)" % [$extractBits(pointer, 0, bits=2)])
@@ -318,7 +318,7 @@ proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
     raise newException(CapnpFormatError, "found unknown 'other' pointer")
 
   let capId = extractBits(pointer, 32, bits=32)
-  return createFromCap(T, self.getCap(capId))
+  return createFromCap(T, self.getCap(RawCapValue(number: capId)))
 
 proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   mixin createFromCap

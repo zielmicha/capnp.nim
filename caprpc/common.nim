@@ -203,7 +203,7 @@ proc testCopy*[T](t: T) =
   let data = packPointerIgnoringCaps(t)
   echo data.encodeHex
   let unpacker = newUnpackerFlat(data)
-  unpacker.getCap = proc(id: int): CapServer = return nothingImplemented
+  unpacker.getCap = proc(val: RawCapValue): CapServer = return nothingImplemented
   echo unpacker.unpackPointer(0, T).pprint
 
   let packer = newPacker()
@@ -215,5 +215,5 @@ proc testCopy*[T](t: T) =
   echo copiedData.encodeHex
 
   let unpacker1 = newUnpackerFlat(copiedData)
-  unpacker1.getCap = proc(id: int): CapServer = return nothingImplemented
+  unpacker1.getCap = proc(val: RawCapValue): CapServer = return nothingImplemented
   echo unpacker1.unpackPointer(0, T).pprint

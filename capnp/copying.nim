@@ -93,7 +93,7 @@ proc getPointerField*(p: AnyPointer, index: int): AnyPointer =
   of AnyPointerKind.cap:
     raise newException(Exception, "cap doesn't have fields")
 
-proc setCapGetter*(p: AnyPointer, r: (proc(id: int): CapServer)) =
+proc setCapGetter*(p: AnyPointer, r: (proc(val: RawCapValue): CapServer)) =
   # a bit hacky, assumes one interface getter per unpacker
   AnyPointerImpl(p).unpacker.customUnpacker = true
   AnyPointerImpl(p).unpacker.getCap = r
@@ -242,12 +242,17 @@ proc copyPointer*(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
         raise newException(CapnpFormatError, "found unknown 'other' pointer")
 
       let capId = extractBits(pointer, 32, bits=32)
-      let newCapId = dst.capToIndex(src.getCap(capId))
-      pack(dst.buffer, targetOffset, 3 or (newCapId shl 32))
+      let newCapVal = dst.capToIndex(src.getCap(RawCapValue(number: capId)))
+      case newCapVal.kind:
+      of rawCapNumber:
+        let newCapId = newCapVal.number
+        pack(dst.buffer, targetOffset, 3 or (newCapId shl 32))
+      of rawCapValue:
+        pack(dst.buffer, targetOffset, newCapVal.value)
     else:
       pack(dst.buffer, targetOffset, unpack(src.buffer, offset, uint64))
 
-proc packNow*(p: AnyPointer, capToIndex: (proc(cap: CapServer): int)): AnyPointer =
+proc packNow*(p: AnyPointer, capToIndex: (proc(cap: CapServer): RawCapValue)): AnyPointer =
   let packer = newPacker()
   packer.capToIndex = capToIndex
   packer.packPointer(0, p)

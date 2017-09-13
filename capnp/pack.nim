@@ -4,7 +4,7 @@ import collections
 
 type Packer* = ref object
   buffer*: string
-  capToIndex*: (proc(cap: CapServer): int)
+  capToIndex*: (proc(cap: CapServer): RawCapValue)
 
 proc packPointer*[T](p: Packer, offset: int, value: T)
 
@@ -150,12 +150,18 @@ proc packStruct[T](p: Packer, offset: int, value: T) =
        (info.pointerCount.uint64 shl 48))
 
 proc packCap(p: Packer, offset: int, value: CapServer) =
-  let id = p.capToIndex(value)
-  if id == -1:
-    pack(p.buffer, offset, 0)
-  else:
-    pack(p.buffer, offset,
-         3.uint64 or (id.uint64 shl 32))
+  let rawValue = p.capToIndex(value)
+
+  case rawValue.kind:
+  of rawCapNumber:
+    let id = rawValue.number
+    if id == -1:
+      pack(p.buffer, offset, 0)
+    else:
+      pack(p.buffer, offset,
+           3.uint64 or (id.uint64 shl 32))
+  of rawCapValue:
+    pack(p.buffer, offset, rawValue.value)
 
 proc packPointer*[T](p: Packer, offset: int, value: T) =
   when value is (string|seq):
@@ -184,7 +190,7 @@ proc packText*[T](p: Packer, offset: int, value: T) =
   packPointer(p, offset, preprocessText(value))
 
 proc newPacker*(): Packer =
-  let capToIndex = proc(cap: CapServer): int =
+  let capToIndex = proc(cap: CapServer): RawCapValue =
     raise newException(Exception, "this packer doesn't support capabilities")
 
   return Packer(
@@ -198,6 +204,6 @@ proc packPointer*[T](value: T): string =
 
 proc packPointerIgnoringCaps*[T](value: T): string =
   let packer = newPacker()
-  packer.capToIndex = proc(cap: CapServer): int = 0xBEEF
+  packer.capToIndex = proc(cap: CapServer): int = RawCapValue(number: 0xBEEF)
   packPointer(packer, 0, value)
   return packer.buffer

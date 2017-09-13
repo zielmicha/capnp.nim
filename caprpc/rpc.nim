@@ -122,11 +122,16 @@ proc capFromDescriptor(self: VatConnection, descriptor: CapDescriptor): CapServe
 
 proc unpackPayload(self: VatConnection, payload: Payload): AnyPointer =
   let caps = payload.capTable.map(x => self.capFromDescriptor(x)).toSeq
-  payload.content.setCapGetter(proc(id: int): CapServer =
+  payload.content.setCapGetter(proc(val: RawCapValue): CapServer =
+                                 case val.kind:
+                                 of rawCapNumber:
+                                   let id = val.number
                                    if id == -1: return nullCap
                                    if id < 0 or id >= caps.len:
                                      raise newException(system.Exception, "invalid capability")
-                                   return caps[id])
+                                   return caps[id]
+                                 else:
+                                   raise newException(system.Exception, "invalid capability type"))
   return payload.content
 
 proc getFutureForQuestion(self: VatConnection, question: Question): Future[AnyPointer] =
@@ -343,11 +348,11 @@ proc exportCap(self: VatConnection, cap: CapServer): CapDescriptor =
 proc makePayload(self: VatConnection, payload: AnyPointer): Payload =
   var capTable: seq[CapDescriptor] = @[]
 
-  proc capToIndex(cap: CapServer): int =
+  proc capToIndex(cap: CapServer): RawCapValue =
     if cap.isNullCap:
-      return -1
+      return RawCapValue(number: -1)
     capTable.add(self.exportCap(cap))
-    return capTable.len - 1
+    return RawCapValue(number: capTable.len - 1)
 
   let newPayload = payload.packNow(capToIndex)
   return Payload(content: newPayload, capTable: capTable) # TODO: caps
