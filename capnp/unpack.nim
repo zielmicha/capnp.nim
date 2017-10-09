@@ -308,7 +308,7 @@ proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   let pointer = unpack(self.buffer, offset, uint64)
 
   if pointer == 0:
-    return createFromCap(T, self.getCap(RawCapValue(number: -1)))
+    return createFromCap(T, self.getCap(RawCapValue(kind: rawCapNumber, number: -1)))
 
   if extractBits(pointer, 0, bits=2) != 3:
     raise newException(CapnpFormatError, "expected capability, found something else ($1)" % [$extractBits(pointer, 0, bits=2)])
@@ -318,7 +318,7 @@ proc unpackCap[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
     raise newException(CapnpFormatError, "found unknown 'other' pointer")
 
   let capId = extractBits(pointer, 32, bits=32)
-  return createFromCap(T, self.getCap(RawCapValue(number: capId)))
+  return createFromCap(T, self.getCap(RawCapValue(kind: rawCapNumber, number: capId)))
 
 proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   mixin createFromCap

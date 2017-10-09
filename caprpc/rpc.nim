@@ -350,9 +350,9 @@ proc makePayload(self: VatConnection, payload: AnyPointer): Payload =
 
   proc capToIndex(cap: CapServer): RawCapValue =
     if cap.isNullCap:
-      return RawCapValue(number: -1)
+      return RawCapValue(kind: rawCapNumber, number: -1)
     capTable.add(self.exportCap(cap))
-    return RawCapValue(number: capTable.len - 1)
+    return RawCapValue(kind: rawCapNumber, number: capTable.len - 1)
 
   let newPayload = payload.packNow(capToIndex)
   return Payload(content: newPayload, capTable: capTable) # TODO: caps

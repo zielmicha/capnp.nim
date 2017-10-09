@@ -204,6 +204,6 @@ proc packPointer*[T](value: T): string =
 
 proc packPointerIgnoringCaps*[T](value: T): string =
   let packer = newPacker()
-  packer.capToIndex = proc(cap: CapServer): int = RawCapValue(number: 0xBEEF)
+  packer.capToIndex = proc(cap: CapServer): int = RawCapValue(kind: rawCapNumber, number: 0xBEEF)
   packPointer(packer, 0, value)
   return packer.buffer

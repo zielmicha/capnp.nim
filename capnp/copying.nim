@@ -242,7 +242,7 @@ proc copyPointer*(src: Unpacker, offset: int, dst: Packer, targetOffset: int) =
         raise newException(CapnpFormatError, "found unknown 'other' pointer")
 
       let capId = extractBits(pointer, 32, bits=32)
-      let newCapVal = dst.capToIndex(src.getCap(RawCapValue(number: capId)))
+      let newCapVal = dst.capToIndex(src.getCap(RawCapValue(kind: rawCapNumber, number: capId)))
       case newCapVal.kind:
       of rawCapNumber:
         let newCapId = newCapVal.number
