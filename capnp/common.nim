@@ -44,6 +44,7 @@ proc decompressCapnp*(a: string): string =
       i += 1
       for j in 0..<8:
         if (tag and (1 shl j)) != 0:
+          doAssert i < len(a)
           result.add(a[i])
           i += 1
         else:

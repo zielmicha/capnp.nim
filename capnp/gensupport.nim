@@ -118,7 +118,7 @@ proc makeUnpacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools:
 proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools: NimNode): NimNode {.compiletime.} =
   # bufferM should be named buffer, but compiler manages to confuse it with buffer proc in unpack
   result = parseStmt("""proc capnpPackStructImpl*[T: XXX](p: Packer, bufferM: var string, value: T, dataOffset: int, minDataSize=0): tuple[dataSize: int, pointerCount: int] =
-  var scalarBuffer = newZeroString(max(@[0]))""")
+  var scalarBuffer = newZeroString(max(@[int(0)]))""")
 
   result[0][2][0][1] = typeName # replace XXX
   let body = result[0][6]
@@ -132,7 +132,7 @@ proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools: N
 
   for p in bools:
     let offset = p[1]
-    sizesList.add(newLit((offset.intVal + 8) div 8))
+    sizesList.add(newCall(!"int", newLit((offset.intVal + 8) div 8)))
 
   for p in scalars:
     let name = p[0]

@@ -76,9 +76,12 @@ macro capServerImpl*(impl, ifaces): untyped =
   let methodIdSym = genSym(nskParam, "methodId")
   let argsSym = genSym(nskParam, "args")
 
-  let callFunc = quote do:
+  var callFunc = quote do:
     proc call*(`selfSym`: `GenericCapServer`, `ifaceIdSym`: uint64, `methodIdSym`: uint64, `argsSym`: AnyPointer): Future[AnyPointer] =
       discard
+
+  if callFunc.kind != nnkStmtList:
+     callFunc = newNimNode(nnkStmtList).add(callFunc)
 
   for iface in ifaces:
     callFunc[0].body.add(quote do:
@@ -104,6 +107,8 @@ macro capServerImpl*(impl, ifaces): untyped =
 # NothingImplemented
 
 proc inlineCap*[T, R](ty: typedesc[T], impl: R): T =
+  #for k, f in fieldPairs(impl[]):
+  #  if k != "toCapServer" and f.isNil: raise newException(Exception, "not all methods implemented ($1 missing)" % k)
   let implIface = impl.asInterface(T)
   when ty isnot CapServer:
     impl.toCapServer = (proc(): CapServer = return toGenericCapServer(implIface))
