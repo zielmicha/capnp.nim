@@ -328,8 +328,11 @@ proc unpackPointer*[T](self: Unpacker, offset: int, typ: typedesc[T]): T =
   elif T is CapServer or T is SomeInterface:
     # compiles(createFromCap(T, CapServer(Interface())))
     return unpackCap(self, offset, typ)
-  else:
+  elif T is object|ref object:
     return unpackStruct(self, offset, typ)
+  else:
+    mixin unpackPointerHook
+    return unpackPointerHook(self, offset, typ)
 
 proc postprocessText(t: string): string =
   if t == nil: return nil

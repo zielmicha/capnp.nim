@@ -170,11 +170,14 @@ proc packPointer*[T](p: Packer, offset: int, value: T) =
     packCap(p, offset, value)
   elif T is SomeInterface:
     packCap(p, offset, toCapServer(value))
-  else:
+  elif T is object|ref object:
     if value.isNil:
       packNil(p, offset)
     else:
       packStruct(p, offset, value)
+  else:
+    mixin packPointerHook
+    packPointerHook(p, offset, value)
 
 proc preprocessText(v: string): string =
   if v == nil: return v

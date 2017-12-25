@@ -171,7 +171,6 @@ proc makePacker(typename: NimNode, scalars: NimNode, pointers: NimNode, bools: N
 
   body.add(parseStmt("capnpPackFinish()"))
 
-
 proc makeGetPointerField(typename: NimNode, pointers: NimNode): NimNode {.compiletime.} =
   result = parseStmt("""proc getPointerField*[T: XXX](self: T, index: int): AnyPointer =
   discard""")
