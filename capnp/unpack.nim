@@ -37,7 +37,7 @@ proc newUnpacker*(segments: seq[string]): Unpacker =
   result.getCap = proc(val: RawCapValue): CapServer =
                       raise newException(CapnpFormatError, "this unpacker doesn't support capabilities")
 
-proc buffer*(self: Unpacker): string {.inline.} =
+proc buffer*(self: Unpacker): var string {.inline.} =
   self.segments[self.currentSegment]
 
 proc parseMultiSegment(buffer: string): seq[string] =
