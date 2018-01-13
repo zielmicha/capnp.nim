@@ -66,7 +66,7 @@ proc padWords*(s: var string) =
 proc trimWords*(s: var string, minSize=0) =
   while s.len > minSize:
     let offset = ((s.len - 1) div 8) * 8
-    let trailing = s[offset..^(-1)]
+    let trailing = s[offset..^1]
     if isZeros(trailing):
       s.setLen(offset)
     else:
