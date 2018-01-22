@@ -69,7 +69,7 @@ proc compressCapnp*(a: string): string =
     var tagPos = result.len
     result.add('\0')
     for b in 0..<8:
-      let isZero = (word and uint64(0xff shl (b*8))) == 0
+      let isZero = (word and uint64(0xff) shl (b*8)) == 0
       if not isZero:
         result.add(a[i*8 + b])
         tag = tag or (1 shl b)

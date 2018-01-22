@@ -31,7 +31,7 @@ proc convertEndian*(size: static[int], dst: pointer, src: pointer, endian=little
 
 proc pack*[T](v: var string, offset: int, value: T, endian=littleEndian) {.inline.} =
   let minLength = offset + sizeof(T)
-  if minLength > v.len:
+  if minLength > v.len or offset > v.len:
     raise newException(CapnpFormatError, "bad offset")
 
   convertEndian(sizeof(T), addr v[offset], unsafeAddr value)
@@ -47,8 +47,9 @@ proc unpack*[T](v: string, offset: int, t: typedesc[T], endian=littleEndian): T 
 
   convertEndian(sizeof(T), addr result, unsafeAddr v[offset])
 
-proc extractBits*(v: uint64|uint32|uint16|uint8, k: Natural, bits: int): int {.inline.} =
+proc extractBits*(v: uint64|uint32|uint16|uint8, k: Natural, bits: static[int]): int {.inline.} =
   assert k + bits <= sizeof(v) * 8
+  static: assert bits <= 32
   return cast[int]((v shr k) and ((1 shl bits) - 1).uint64)
 
 proc newZeroString*(length: int): string =

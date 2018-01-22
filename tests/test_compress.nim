@@ -1,4 +1,4 @@
-import capnp
+import capnp, collections
 
 proc check(s: string) =
   assert s.len mod 8 == 0, s

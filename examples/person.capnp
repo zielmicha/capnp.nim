@@ -7,6 +7,7 @@ struct Person {
   email @1 :Text;
   phones @2 :List(PhoneNumber);
   notes @4 :List(Text);
+  usosIds @7 :List(Int64);
 
   isAwesome @5 :Bool;
   isCloseFriend @6 :Bool = true;

@@ -19,7 +19,8 @@ proc main() {.async.} =
                                        Calculator_Expression(kind: Calculator_ExpressionKind.literal, literal: 1),
                                        Calculator_Expression(kind: Calculator_ExpressionKind.literal, literal: 2)])
   let ret = await calculator.evaluate(myExpr)
-  echo(await ret.read())
+  let retb = await ret.read()
+  echo(retb)
 
   let myFunc = inlineCap(Calculator_Function, Calculator_FunctionInlineImpl(
     call: proc(params: seq[float64]): Future[float64] =
@@ -32,7 +33,8 @@ proc main() {.async.} =
                                      params: @[
                                        Calculator_Expression(kind: Calculator_ExpressionKind.literal, literal: 1)])
   let ret1 = await calculator.evaluate(expr2)
-  echo(await ret1.read())
+  let ret1b = await ret1.read()
+  echo(ret1b)
 
   discard (await calculator.getOperator(Calculator_Operator.subtract))
   echo "collecting garbage..."

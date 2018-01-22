@@ -176,8 +176,9 @@ proc unpackScalarList[T, Target](self: Unpacker, typ: typedesc[T], target: typed
     raise newException(CapnpFormatError, "index error")
 
   var buffer = self.buffer
-  copyMem(addr target[0],
-          addr buffer[bodyOffset], listSize)
+  if listSize > 0:
+    copyMem(addr target[0],
+            addr buffer[bodyOffset], listSize)
 
   deferRestoreStackLimit
   self.decreaseLimit(listSize)

@@ -2,6 +2,8 @@ import persondef, capnp
 
 let p = new(Person)
 let d = new(Date)
+
+p.usosIds = @[1.int64, 2, 3, 4, 5, 6, 7, 8]
 p.birthdate = d
 p.isAwesome = true
 p.isCloseFriend = false
@@ -21,7 +23,7 @@ d.year = 2016
 d.month = 12
 d.day = 5
 
-let packed = packStruct(p)
+let packed = packPointer(p)
 echo packed.repr
 
 writeFile("person.bin", packed)
