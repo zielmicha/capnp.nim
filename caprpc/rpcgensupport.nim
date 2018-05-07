@@ -4,8 +4,8 @@ template wrapFutureInSinglePointer*(typ, fieldName, value): typed =
   # value: Future[T], return: Future[typ]
   value.then(xxx => typ(fieldName: xxx)).toAnyPointerFuture
 
-template getFutureField*(value, fieldName): typed =
-  value.then(xxx => xxx.fieldName)
+template getFutureField*(value, fieldName: untyped): typed =
+  value.then((xxx: type(value.get)) => xxx.fieldName)
 
 template miscCapMethods*(typ, typWrapper) =
   proc createCallWrapper[T: typ](ty: typedesc[T], capServer: CapServer): typWrapper =
