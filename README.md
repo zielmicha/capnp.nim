@@ -1,6 +1,8 @@
 # capnp.nim
 Cap'n Proto bindings for Nim
 
+**WARNING: the project is not actively maintained**
+
 capnp.nim is a Nim implementation of Cap'n Proto serialization scheme and RPC protocol.
 
 The serialization layer is production ready. The RPC layers is also fairly well tested, enough to be useful, but not the whole protocol is implemented.
